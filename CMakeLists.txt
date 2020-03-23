@@ -5,6 +5,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 project( signals LANGUAGES CXX )
 
+# Enable testing.
+include(CTest)
+
 if( BUILD_TESTING )
     add_subdirectory( tests )
 endif( BUILD_TESTING )
