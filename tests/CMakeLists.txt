@@ -11,8 +11,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
-add_executable( signal_tests test1.cpp )
+set( HEADER_FILES
+    ../signals.hpp
+)
+
+add_executable( signal_tests test1.cpp ${HEADER_FILES} )
 target_link_libraries( signal_tests gtest gtest_main )
+target_include_directories( signal_tests 
+    PUBLIC ../
+)
 
 
 gtest_discover_tests( signal_tests )
