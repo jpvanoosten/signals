@@ -10,6 +10,10 @@ include(CTest)
 
 if( BUILD_TESTING )
     add_subdirectory( tests )
+    # Set the startup project.
+    set_directory_properties( PROPERTIES 
+        VS_STARTUP_PROJECT signal_tests
+    )
 endif( BUILD_TESTING )
 
 

@@ -27,6 +27,8 @@
  *  @author Jeremiah van Oosten
  *
  *  @brief The signals header file.
+ *  @see https://www.boost.org/doc/libs/1_72_0/doc/html/signals2.html
+ *  @see https://github.com/palacaze/sigslot
  */
 
 #include <atomic>
@@ -37,15 +39,44 @@ namespace signals
 namespace detail
 {
 
+namespace trait
+{
 /**
  * Represents a list of types.
  */
-template <typename...>
-struct typelist {};
+template < typename... >
+struct typelist
+{};
 
-using data_ptr = const void*;
-using call_pptr = data_ptr*;
+// from C++17
+// @see https://en.cppreference.com/w/cpp/types/void_t
+template< typename... >
+struct make_void
+{
+    typedef void type;
+};
 
+template< typename... T>
+using void_t = typename make_void<T...>::type;
+
+// Detect valid weak_ptr types.
+// @see https://www.fluentcpp.com/2017/06/02/write-template-metaprogramming-expressively/
+template< typename T, typename = void_t<> >
+struct is_weak_ptr : std::false_type
+{};
+
+template< typename T >
+struct is_weak_ptr< T, void_t< decltype(std::declval<T>().expired()),
+                               decltype(std::declval<T>().lock()),
+                               decltype(std::declval<T>().reset()) > >
+       : std::true_type
+{};
+
+template< typename T >
+using is_weak_ptr_v = is_weak_ptr<T>::value;
+
+
+} // namespace trait
 
 /**
  * slot_state holds slot data that is independent of the slot type.
@@ -146,28 +177,55 @@ private:
 
 /*
  * A slot object holds state information, and a callable to to be called
- * whenever the function call operator of its slot_base base class is called.
+ * whenever the function call operator is called.
  */
-template <typename R, typename... Args>
-class slot : public slot_base<R, Args...> {
+template <typename WeakPtr, typename R, typename... Args>
+class slot : public slot_state
+{
 public:
+    using return_type = R;
+    using args_type = typelist<Args...>;
+    using func_type = std::function<R, Args...>;
 
-    template <typename F>
-    constexpr slot(cleanable& c, F&& f)
-        : slot_base<R, Args...>(c)
-        , func{ std::forward<F>(f) } {}
+    template <typename Func>
+    constexpr slot(cleanable& c, Func&& f)
+        : cleaner(c)
+        , ptr{ nullptr }
+        , func{ std::forward<F>(f) }
+    {}
 
-protected:
-    R call_slot(Args ...args) override {
-        return func(args...);
+    template <typename Func, typename Ptr>
+    constexpr slot(cleanable& c, Ptr&& p, Func&& f)
+        : cleaner(c)
+        , ptr{ std::forward<Ptr>(p) }
+        , func{ std::forward<Func>(f) }
+    {}
+
+    virtual ~slot() override = default;
+
+    template <typename... U>
+    R operator()(U&& ...u) {
+        if (slot_state::connected() && !slot_state::blocked()) {
+            return call_slot(std::forward<U>(u)...);
+        }
     }
 
-    void target(call_pptr p) const noexcept override {
-        *p = func.target<func_type>();
+protected:
+    
+    std::enable_if<
+    R call_slot(Args ...args)
+    {
+        auto sp = ptr.lock();
+        return func( std::forward<Args>(args)... );
     }
 
 private:
+    template <typename, typename...>
+    friend class ::signals::signal_base;
+
+    std::decay<WeakPtr>::type ptr;
     std::function<R, Args...> func;
+    cleanable& cleaner;
 };
 
 
