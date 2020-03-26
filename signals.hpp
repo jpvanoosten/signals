@@ -73,8 +73,7 @@ struct is_weak_ptr< T, void_t< decltype(std::declval<T>().expired()),
 {};
 
 template< typename T >
-using is_weak_ptr_v = is_weak_ptr<T>::value;
-
+using is_weak_ptr_v = typename is_weak_ptr<T>::value;
 
 } // namespace trait
 
@@ -113,8 +112,8 @@ protected:
 
 
 private:
-    template <typename, typename...>
-    friend class ::signals::signal_base;
+    //template <typename, typename...>
+    //friend class ::signals::signal_base;
 
     std::size_t m_index;  // index into the array of slot pointers inside the signal
     std::atomic<bool> m_connected;
