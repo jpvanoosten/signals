@@ -32,6 +32,8 @@
  */
 
 #include <atomic>
+#include <functional>
+#include <type_traits>
 
 namespace signals
 {
@@ -73,14 +75,15 @@ struct is_weak_ptr< T, void_t< decltype(std::declval<T>().expired()),
 {};
 
 template< typename T >
-using is_weak_ptr_v = typename is_weak_ptr<T>::value;
+constexpr typename is_weak_ptr<T>::value_type is_weak_ptr_v = is_weak_ptr<T>::value;
 
 } // namespace trait
 
 /**
  * slot_state holds slot data that is independent of the slot type.
  */
-class slot_state {
+class slot_state 
+{
 public:
     constexpr slot_state() noexcept
         : m_index(0)
@@ -90,34 +93,53 @@ public:
 
     virtual ~slot_state() = default;
 
-    virtual bool connected() const noexcept { return m_connected; }
+    virtual bool connected() const noexcept
+    {
+        return m_connected;
+    }
 
-    bool disconnect() noexcept {
+    bool disconnect() noexcept 
+    {
         bool ret = m_connected.exchange(false);
-        if (ret) {
+
+        if (ret) 
+        {
             do_disconnect();
         }
+
         return ret;
     }
 
-    bool blocked() const noexcept { return m_blocked.load(); }
-    void block()   noexcept { m_blocked.store(true); }
-    void unblock() noexcept { m_blocked.store(false); }
+    bool blocked() const noexcept 
+    { 
+        return m_blocked; 
+    }
+
+    void block()   noexcept 
+    { 
+        m_blocked = true; 
+    }
+
+    void unblock() noexcept 
+    { 
+        m_blocked = false; 
+    }
 
 protected:
-    virtual void do_disconnect() {}
+    virtual void do_disconnect() 
+    {}
+
     std::size_t& index() {
         return m_index;
     }
-
 
 private:
     //template <typename, typename...>
     //friend class ::signals::signal_base;
 
     std::size_t m_index;  // index into the array of slot pointers inside the signal
-    std::atomic<bool> m_connected;
-    std::atomic<bool> m_blocked;
+    std::atomic_bool m_connected;
+    std::atomic_bool m_blocked;
 };
 
 /**
@@ -126,52 +148,6 @@ private:
 struct cleanable {
     virtual ~cleanable() = default;
     virtual void clean(slot_state*) = 0;
-};
-
-/**
- * A base class for slot objects. This base type only depends on slot argument
- * types, it will be used as an element in a list of slots, hence the public next member.
- */
-template <typename R, typename... Args>
-class slot_base : public slot_state {
-public:
-
-    using return_type = R;
-    using args_type = typelist<Args...>;
-    using func_type = std::function<R, Args...>;
-
-    explicit slot_base(cleanable& c) : cleaner(c) {}
-    ~slot_base() override = default;
-
-    // method effectively responsible for calling the "slot" function with
-    // supplied arguments whenever emission happens.
-    virtual R call_slot(Args...) = 0;
-
-    template <typename... U>
-    R operator()(U&& ...u) {
-        if (slot_state::connected() && !slot_state::blocked()) {
-            return call_slot(std::forward<U>(u)...);
-        }
-    }
-
-    // Retrieve a pointer to the object embedded in the slot
-    virtual data_ptr get_object() const noexcept {
-        return nullptr;
-    }
-
-    // Retrieve a pointer to the callable embedded in the slot
-    virtual void get_callable(call_pptr p) const noexcept {
-        *p = nullptr;
-    }
-
-protected:
-
-    void do_disconnect() final {
-        cleaner.clean(this);
-    }
-
-private:
-    cleanable& cleaner;
 };
 
 /*
@@ -210,12 +186,11 @@ public:
     }
 
 protected:
-    
-    std::enable_if<
-    R call_slot(Args ...args)
+
+    template<typename PtrType = WeakPtr, typename std::enable_if< is_weak_ptr< PtrType >::value >::type >
+    R call_slot(Args... args)
     {
-        auto sp = ptr.lock();
-        return func( std::forward<Args>(args)... );
+        return func(std::forward<Args>(args)...);
     }
 
 private:
