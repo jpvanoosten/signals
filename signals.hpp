@@ -31,6 +31,7 @@
  *  @see https://github.com/palacaze/sigslot
  */
 
+#include <cstddef>
 #include <atomic>
 #include <functional>
 #include <type_traits>
@@ -50,7 +51,27 @@ template < typename... >
 struct typelist
 {};
 
-// from C++17
+// since C++14
+template<bool B, typename T = void>
+using enable_if_t = typename std::enable_if<B,T>::type;
+
+// since C++14
+template<class T>
+using decay_t = typename std::decay<T>::type;
+
+// since C++17
+template<class Base, class Derived>
+inline constexpr bool is_base_of_v = std::is_base_of<Base, Derived>::value;
+
+// Since C++17
+template< class T >
+inline constexpr bool is_member_function_pointer_v = std::is_member_function_pointer<T>::value;
+
+// since C++17
+template<class T>
+inline constexpr bool is_function_v = std::is_function<T>::value;
+
+// since C++17
 // @see https://en.cppreference.com/w/cpp/types/void_t
 template< typename... >
 struct make_void
@@ -58,152 +79,146 @@ struct make_void
     typedef void type;
 };
 
-template< typename... T>
+template<typename... T>
 using void_t = typename make_void<T...>::type;
 
 // Detect valid weak_ptr types.
 // @see https://www.fluentcpp.com/2017/06/02/write-template-metaprogramming-expressively/
-template< typename T, typename = void_t<> >
+template<typename T, typename = void_t<>>
 struct is_weak_ptr : std::false_type
 {};
 
-template< typename T >
+template<typename T>
 struct is_weak_ptr< T, void_t< decltype(std::declval<T>().expired()),
                                decltype(std::declval<T>().lock()),
                                decltype(std::declval<T>().reset()) > >
        : std::true_type
 {};
 
-template< typename T >
-constexpr typename is_weak_ptr<T>::value_type is_weak_ptr_v = is_weak_ptr<T>::value;
+template<typename T>
+inline constexpr bool is_weak_ptr_v = is_weak_ptr<T>::value;
+
+// Detect reference wrappers.
+// @see https://en.cppreference.com/w/cpp/utility/functional/reference_wrapper
+template<typename T, typename = void_t<> >
+struct is_reference_wrapper : std::false_type
+{};
+
+template<typename T>
+struct is_reference_wrapper<std::reference_wrapper<T>> : std::true_type
+{};
+
+template<typename T>
+inline constexpr bool is_reference_wrapper_v = is_reference_wrapper<T>::value;
+
+// Detect nullptr types.
+// @see: https://en.cppreference.com/w/cpp/types/is_null_pointer
+template<typename T>
+struct is_null_pointer : std::is_same<std::nullptr_t, std::remove_cv<T>::type>
+{};
+
+template<typename T>
+inline constexpr bool is_null_pointer_v = is_null_pointer<T>::value;
+
+// Get the result of an invokable function.
+// @see https://en.cppreference.com/w/cpp/types/result_of
+template<typename T>
+struct invoke_impl
+{
+    // Deduce type of calling a (non member) function.
+    template<typename Func, typename... Args>
+    static auto call(Func&& f, Args&&... args) -> decltype(std::forward<Func>(f)(std::forward<Args>(args)...));
+};
+
+template<typename B, typename MT>
+struct invoke_impl<MT B::*>
+{
+    template<typename T, typename Td = decay_t<T>,
+        typename = enable_if_t<is_base_of_v<B, Td>>>
+    static auto get(T&& t)  -> T&&;
+
+    template<typename T, typename Td = decay_t<T>,
+        typename = enable_if_t<is_reference_wrapper_v<Td>>>
+    static auto get(T&& t) -> decltype(t.get());
+
+    template<typename T, typename Td = decay_t<T>,
+        typename = enable_if_t<!is_base_of_v<B, Td>,
+        typename = enable_if_t<!is_reference_wrapper_v<Td>>
+    static auto get(T&& t) -> decltype(*std::forward<T>(t));
+
+    // Deduce the result of calling a pointer to member function.
+    template<typename T, typename... Args, typename MT1,
+        typename = enable_if_t<is_function_v<MT1>>
+    static auto call(MT1 B::*pmf, T&& t, Args&&... args) -> decltype((invoke_impl::get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...));
+
+    // Deduce the result of calling a pointer to data member.
+    template<class T>
+    static auto call(MT B::*pmd, T&& t) -> decltype(invoke_impl::get(std::forward<T>(t)).*pmd);
+};
+
+template<typename T, typename Type, typename T1, typename... Args>
+constexpr auto INVOKE(Type T::* f, T1&& t1, Args&&... args) -> decltype(invoke_impl<decay_t<T>>::call(std::forward<Type>(f), std::forward<Args>(args)...))
+{
+
+}
+
+template<typename F, typename... Args, class Fd = decay_t<F>>
+constexpr auto INVOKE(F&& f, Args&&... args) -> decltype(invoke_impl<Fd>::call(std::forward<F>(f), std::forward<Args>(args)...))
+{
+    return std::forward<F>(f)(std::forward<Args>(args)...));
+}
+
+template<typename AlwaysVoid, typename, typename...>
+struct invoke_result_impl
+{};
+
+template<typename F, typename... Args>
+struct invoke_result_impl<decltype(void(INVOKE(std::declval<F>(), std::declval<Args>()...))), F, Args...>
+{
+    using type = decltype(INVOKE(std::declval<F>(), std::declval<Args>()...));
+};
+
+template<typename F, typename... Args>
+struct invoke_result : invoke_result_impl<void, F, Args...>
+{};
+
+template<typename F, typename... Args>
+using invoke_result_t = typename invoke_result<F, Args...>::type;
 
 } // namespace trait
 
-/**
- * slot_state holds slot data that is independent of the slot type.
- */
-class slot_state 
-{
-public:
-    constexpr slot_state() noexcept
-        : m_index(0)
-        , m_connected(true)
-        , m_blocked(false)
-    {}
 
-    virtual ~slot_state() = default;
-
-    virtual bool connected() const noexcept
-    {
-        return m_connected;
-    }
-
-    bool disconnect() noexcept 
-    {
-        bool ret = m_connected.exchange(false);
-
-        if (ret) 
-        {
-            do_disconnect();
-        }
-
-        return ret;
-    }
-
-    bool blocked() const noexcept 
-    { 
-        return m_blocked; 
-    }
-
-    void block()   noexcept 
-    { 
-        m_blocked = true; 
-    }
-
-    void unblock() noexcept 
-    { 
-        m_blocked = false; 
-    }
-
-protected:
-    virtual void do_disconnect() 
-    {}
-
-    std::size_t& index() {
-        return m_index;
-    }
-
-private:
-    //template <typename, typename...>
-    //friend class ::signals::signal_base;
-
-    std::size_t m_index;  // index into the array of slot pointers inside the signal
-    std::atomic_bool m_connected;
-    std::atomic_bool m_blocked;
-};
-
-/**
- * Interface for cleanable objects, used to cleanup disconnected slots.
- */
-struct cleanable {
-    virtual ~cleanable() = default;
-    virtual void clean(slot_state*) = 0;
-};
+} // namespace detail
 
 /*
  * A slot object holds state information, and a callable to to be called
  * whenever the function call operator is called.
  */
-template <typename WeakPtr, typename R, typename... Args>
-class slot : public slot_state
+template <typename Func, typename Ptr = std::nullptr_t>
+class slot
 {
 public:
-    using return_type = R;
-    using args_type = typelist<Args...>;
-    using func_type = std::function<R, Args...>;
+    slot() = delete;
 
-    template <typename Func>
-    constexpr slot(cleanable& c, Func&& f)
-        : cleaner(c)
-        , ptr{ nullptr }
-        , func{ std::forward<F>(f) }
+    constexpr slot(Func&& f)
+        : func{ std::forward<Func>(f) }
     {}
 
-    template <typename Func, typename Ptr>
-    constexpr slot(cleanable& c, Ptr&& p, Func&& f)
-        : cleaner(c)
-        , ptr{ std::forward<Ptr>(p) }
+    constexpr slot(Ptr&& p, Func&& f)
+        : ptr{ std::forward<Ptr>(p) }
         , func{ std::forward<Func>(f) }
     {}
 
-    virtual ~slot() override = default;
-
-    template <typename... U>
-    R operator()(U&& ...u) {
-        if (slot_state::connected() && !slot_state::blocked()) {
-            return call_slot(std::forward<U>(u)...);
-        }
-    }
-
-protected:
-
-    template<typename PtrType = WeakPtr, typename std::enable_if< is_weak_ptr< PtrType >::value >::type >
-    R call_slot(Args... args)
+    template <typename... Args,
+    typename = detail::trait::enable_if_t<std::is_same<Ptr, std::nullptr_t>::value>>
+     operator()(Args ...args) 
     {
-        return func(std::forward<Args>(args)...);
+        return func(args...);
     }
 
 private:
-    template <typename, typename...>
-    friend class ::signals::signal_base;
-
-    std::decay<WeakPtr>::type ptr;
-    std::function<R, Args...> func;
-    cleanable& cleaner;
+    std::decay<Ptr>::type ptr;
+    std::decay<Func>::type func;
 };
-
-
-
-}
 
 }
