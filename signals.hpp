@@ -222,8 +222,6 @@ template <typename Func, typename Ptr = std::nullptr_t>
 class slot
 {
 public:
-    slot() = delete;
-
     constexpr slot(Func&& f)
         : func{ std::forward<Func>(f) }
         , ptr{ nullptr }
@@ -235,16 +233,17 @@ public:
     {}
 
     template <typename... Args>
-    constexpr detail::trait::invoke_result_t<Func, Args...> operator()(Args&&... args)
+    constexpr detail::trait::enable_if_t<std::is_same<Ptr, std::nullptr_t>::value, detail::trait::invoke_result_t<Func, Args...>>
+        operator()(Args&&... args)
     {
-        if (ptr)
-        {
-            return detail::invoke(func, ptr, std::forward<Args>(args)...);
-        }
-        else
-        {
-            return detail::invoke(func, std::forward<Args>(args)...);
-        }
+        return detail::invoke(func, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    constexpr detail::trait::enable_if_t<!std::is_same<Ptr, std::nullptr_t>::value, detail::trait::invoke_result_t<Func, Ptr, Args...>>
+        operator()(Args&&... args)
+    {
+        return detail::invoke(func, ptr, std::forward<Args>(args)...);
     }
 
 private:
