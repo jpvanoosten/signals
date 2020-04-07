@@ -40,176 +40,318 @@ namespace signals
 {
     namespace detail
     {
-
-        namespace trait
+        namespace traits
         {
-            /**
-             * Represents a list of types.
-             */
-            template < typename... >
-            struct typelist
-            {};
-
             // since C++14
-            template<bool B, typename T = void>
+            // @see https://en.cppreference.com/w/cpp/types/enable_if
+            template<bool B, class T = void>
             using enable_if_t = typename std::enable_if<B, T>::type;
 
             // since C++14
+            // @see https://en.cppreference.com/w/cpp/types/decay
             template<class T>
             using decay_t = typename std::decay<T>::type;
 
+            // since C++14
+            // @see https://en.cppreference.com/w/cpp/types/conditional
+            template<bool B, class T, class F>
+            using conditional_t = typename std::conditional<B, T, F>::type;
+
+            // since C++14
+            // @see https://en.cppreference.com/w/cpp/types/remove_cv
+            template< class T >
+            using remove_cv_t = typename std::remove_cv<T>::type;
+
+            // since C++14
+            // @see https://en.cppreference.com/w/cpp/types/remove_cv
+            template< class T >
+            using remove_const_t = typename std::remove_const<T>::type;
+
+            // since C++14
+            // @see https://en.cppreference.com/w/cpp/types/remove_cv
+            template< class T >
+            using remove_volatile_t = typename std::remove_volatile<T>::type;
+
+            // since C++14
+            // @see https://en.cppreference.com/w/cpp/types/remove_reference
+            template< class T >
+            using remove_reference_t = typename std::remove_reference<T>::type;
+
             // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_base_of
             template<class Base, class Derived>
             constexpr bool is_base_of_v = std::is_base_of<Base, Derived>::value;
 
-            // Since C++17
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_member_function_pointer
             template< class T >
             constexpr bool is_member_function_pointer_v = std::is_member_function_pointer<T>::value;
 
             // since C++17
+            // @see 
+            template< class T >
+            constexpr bool is_member_object_pointer_v = std::is_member_object_pointer<T>::value;
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_function
             template<class T>
             constexpr bool is_function_v = std::is_function<T>::value;
 
             // since C++17
             // @see https://en.cppreference.com/w/cpp/types/void_t
-            template< typename... >
+            template< class... >
             struct make_void
             {
                 typedef void type;
             };
 
-            template<typename... T>
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/void_t
+            template<class... T>
             using void_t = typename make_void<T...>::type;
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/conjunction
+            template<class...> struct conjunction : std::true_type {};
+            template<class B1> struct conjunction<B1> : B1 { };
+            template<class B1, class... Bn>
+            struct conjunction<B1, Bn...> : conditional_t<bool(B1::value), conjunction<Bn...>, B1> {};
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/conjunction
+            template<class... B>
+            constexpr bool conjunction_v = conjunction<B...>::value;
+
+
+            // since C++20
+            // @see https://en.cppreference.com/w/cpp/types/remove_cvref
+            template<class T>
+            struct remove_cvref {
+                typedef remove_cv_t<remove_reference_t<T>> type;
+            };
+
+            // since C++20
+            // @see https://en.cppreference.com/w/cpp/types/remove_cvref
+            template<class T>
+            using remove_cvref_t = typename remove_cvref<T>::type;
 
             // Detect valid weak_ptr types.
             // @see https://www.fluentcpp.com/2017/06/02/write-template-metaprogramming-expressively/
-            template<typename T, typename = void_t<>>
+            template<class T, class = void_t<>>
             struct is_weak_ptr : std::false_type
             {};
 
-            template<typename T>
-            struct is_weak_ptr< T, void_t< decltype(std::declval<T>().expired()),
+            template<class T>
+            struct is_weak_ptr< T, void_t< 
+                decltype(std::declval<T>().expired()),
                 decltype(std::declval<T>().lock()),
                 decltype(std::declval<T>().reset()) > >
                 : std::true_type
             {};
 
-            template<typename T>
+            template<class T>
             constexpr bool is_weak_ptr_v = is_weak_ptr<T>::value;
 
             // Detect reference wrappers.
             // @see https://en.cppreference.com/w/cpp/utility/functional/reference_wrapper
-            template<typename T, typename = void_t<> >
+            template<class T, class = void_t<> >
             struct is_reference_wrapper : std::false_type
             {};
 
-            template<typename T>
+            template<class T>
             struct is_reference_wrapper<std::reference_wrapper<T>> : std::true_type
             {};
 
-            template<typename T>
+            template<class T>
             constexpr bool is_reference_wrapper_v = is_reference_wrapper<T>::value;
 
             // Detect nullptr types.
             // since C++14
             // @see: https://en.cppreference.com/w/cpp/types/is_null_pointer
-            template<typename T>
+            template<class T>
             struct is_null_pointer : std::is_same<std::nullptr_t, typename std::remove_cv<T>::type>
             {};
 
             // since C++17
-            template<typename T>
+            template<class T>
             constexpr bool is_null_pointer_v = is_null_pointer<T>::value;
 
-            // Get the result of an invokable function.
-            // @see https://en.cppreference.com/w/cpp/types/result_of
-            template<typename T>
-            struct invoke_impl
+            // Detect member function traits.
+            // @see https://stackoverflow.com/questions/28105077/how-can-i-get-the-class-of-a-member-function-pointer
+            template<class>
+            struct member_function_traits;
+
+            template<class R, class T, class... Args>
+            struct member_function_traits<R(T::*)(Args...)>
             {
-                // Deduce type of calling a (non member) function.
-                template<typename Func, typename... Args>
-                static auto call(Func&& f, Args&&... args) -> decltype(std::forward<Func>(f)(std::forward<Args>(args)...))
-                {
-                    return std::forward<Func>(f)(std::forward<Args>(args)...);
-                }
+                using return_type = R;
+                using class_type = T;
+                using reference_type = T&;
             };
 
-            template<typename BaseType, typename MemberType>
-            struct invoke_impl<MemberType BaseType::*>
+            template<class R, class T, class... Args>
+            struct member_function_traits<R(T::*)(Args...) const>
             {
-                template<typename T, typename Td = decay_t<T>,
-                    typename = enable_if_t<is_base_of_v<BaseType, Td>>>
-                    static auto get(T&& t) -> T&&
-                {
-                    return t;
-                }
-
-                template<typename T, typename Td = decay_t<T>,
-                    typename = enable_if_t<is_reference_wrapper_v<Td>>>
-                    static auto get(T&& t) -> decltype(t.get())
-                {
-                    return t.get();
-                }
-
-                template <typename T, typename Td = decay_t<T>,
-                    typename = enable_if_t<!is_base_of_v<BaseType, Td>>,
-                    typename = enable_if_t<!is_reference_wrapper_v<Td>>>
-                    static auto get(T&& t) -> decltype(*std::forward<T>(t))
-                {
-                    return *std::forward<T>(t);
-                }
-
-                // Deduce the result of calling a pointer to member function.
-                template<typename T, typename... Args, typename MT1,
-                    typename = enable_if_t<is_function_v<MT1>>>
-                    static auto call(MT1 T::* pmf, T&& t, Args&&... args) -> decltype((invoke_impl::get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
-                {
-                    return (invoke_impl::get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
-                }
-
-                // Deduce the result of calling a pointer to data member.
-                template<typename T>
-                static auto call(MemberType T::* pmd, T&& t) -> decltype(invoke_impl::get(std::forward<T>(t)).*pmd)
-                {
-                    return invoke_impl::get(std::forward<T>(t)).*pmd;
-                }
+                using return_type = R;
+                using class_type = T;
+                using reference_type = const T&;
             };
 
-            template<typename T, typename Type, typename T1, typename... Args, typename Td = decay_t<T>, typename T1d = decay_t<T1>>
-            constexpr auto INVOKE(Type T::* f, T1&& t1, Args&&... args) -> decltype(invoke_impl<Td>::call(std::forward<Td>(f), std::forward<T1d>(t1), std::forward<Args>(args)...))
-            {
-                return invoke_impl<Td>::call(std::forward<Td>(f), std::forward<T1d>(t1), std::forward<Args>(args)...);
-            }
+             // Detect template specialization.
+             // @see https://stackoverflow.com/questions/16337610/how-to-know-if-a-type-is-a-specialization-of-stdvector
+             template<class Type, template <class...> class Template>
+             constexpr bool is_specialization_v = false;
 
-            template<typename F, typename... Args, class Fd = decay_t<F>>
-            constexpr auto INVOKE(F&& f, Args&&... args) -> decltype(invoke_impl<Fd>::call(std::forward<F>(f), std::forward<Args>(args)...))
-            {
-                return invoke_impl<Fd>::call(std::forward<F>(f), std::forward<Args>(args)...);
-            }
+            template<template <class...> class Template, typename... Types>
+            constexpr bool is_specialization_v<Template<Types...>, Template> = true;
 
-            template<typename AlwaysVoid, typename, typename...>
-            struct invoke_result_impl
-            {};
+        } // namespace traits
 
-            template<typename Func, typename... Args>
-            struct invoke_result_impl<decltype(void(INVOKE(std::declval<Func>(), std::declval<Args>()...))), Func, Args...>
-            {
-                using type = decltype(INVOKE(std::declval<Func>(), std::declval<Args>()...));
-            };
-
-            template<typename Func, typename... Args>
-            struct invoke_result : invoke_result_impl<void, Func, Args...>
-            {};
-
-            template<typename Func, typename... Args>
-            using invoke_result_t = typename invoke_result<Func, Args...>::type;
-
-        } // namespace trait
-
-        template<typename Func, typename... Args>
-        constexpr trait::invoke_result_t<Func, Args...> invoke(Func&& f, Args&&... args)
+        /**
+         * Invoke a pointer to a member function of an object.
+         */
+        struct invoke_pmf_object
         {
-            return trait::INVOKE(std::forward<F>(f), std::forward<Args>(args)...);
+            template<class F, class T, class... Args>
+            static constexpr auto call(F pmf, T&& t, Args&&... args)
+                noexcept(noexcept((std::forward<T>(t).*pmf)(std::forward<Args>(args)...)))
+                -> decltype((std::forward<T>(t).*pmf)(std::forward<Args>(args)...))
+            {
+                return (std::forward<T>(t).*pmf)(std::forward<Args>(args)...);
+            }
+        };
+
+        /**
+         * Invoke a pointer to a member function on a std::reference_wrapper
+         */
+        struct invoke_pmf_refwrap
+        {
+            template<class F, class T, class... Args>
+            static constexpr auto call(F pmf, T&& t, Args&&... args)
+                noexcept(noexcept((std::forward<T>(t).get().*pmf)(std::forward<Args>(args)...)))
+                -> decltype((std::forward<T>(t).get().*pmf)(std::forward<Args>(args)...))
+            {
+                return (std::forward<T>(t).get().*pmf)(std::forward<Args>(args)...);
+            }
+        };
+
+        /**
+         * Invoke a pointer to member function on a (smart) pointer.
+         */
+        struct invoke_pmf_pointer
+        {
+            template<class F, class T, class... Args>
+            static constexpr auto call(F pmf, T&& t, Args&&... args)
+                noexcept(noexcept(((*std::forward<T>(t)).*pmf)(std::forward<Args>(args)...)))
+                -> decltype(((*std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
+            {
+                return ((*std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
+            }
+        };
+
+        /**
+         * Invoke a pointer to a member data on an object.
+         */
+        struct invoke_pmd_object
+        {
+            template<class D, class T>
+            static constexpr auto call(D pmd, T&& t)
+                noexcept(noexcept(std::forward<T>(t).*pmd))
+                -> decltype(std::forward<T>(t).*pmd)
+            {
+                return std::forward<T>(t).*pmd;
+            }
+        };
+
+        /**
+         * Invoke a pointer to member data on a reference wrapper.
+         */
+        struct invoke_pmd_refwrap
+        {
+            template<class D, class T>
+            static constexpr auto call(D pmd, T&& t)
+                noexcept(noexcept(std::forward<T>(t).get().*pmd))
+                -> decltype(std::forward<T>(t).get().*pmd)
+            {
+                return std::forward<T>(t).get().*pmd;
+            }
+        };
+
+        /**
+         * Invoke a pointer to member data on a (smart) pointer.
+         */
+        struct invoke_pmd_pointer
+        {
+            template<class D, class T>
+            static constexpr auto call(D pmd, T&& t)
+                noexcept(noexcept((*std::forward<T>(t)).*pmd))
+                -> decltype((*std::forward<T>(t)).*pmd)
+            {
+                return (*std::forward<T>(t)).*pmd;
+            }
+        };
+
+        /**
+         * Invoke a function object.
+         */
+        struct invoke_functor
+        {
+            template<class F, class... Args>
+            static constexpr auto call(F&& f, Args&&... args)
+                noexcept(noexcept(std::forward<F>(f)(std::forward<Args>(args)...)))
+                -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
+            {
+                return std::forward<F>(f)(std::forward<Args>(args)...);
+            }
+        };
+
+        // Primary template
+        template<class F, class T, class Fd = traits::remove_cvref_t<F>,
+            bool is_pmf = traits::is_member_function_pointer_v<Fd>,
+            bool is_pmd = traits::is_member_object_pointer_v<Fd>>
+        struct invoker_helper;
+
+        // Specialization for pointer to member function.
+        template<class F, class T, class Fd>
+        struct invoker_helper<F, T, Fd, true, false>
+            : traits::conditional_t< traits::is_base_of_v< typename traits::member_function_traits<Fd>::class_type, traits::remove_reference_t<T>>,
+                invoke_pmf_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper>,
+                invoke_pmf_refwrap, invoke_pmf_pointer>>
+        {};
+
+        // Specialization for pointer to member data.
+        template<class F, class T, class Fd>
+        struct invoker_helper<F, T, Fd, false, true>
+            : traits::conditional_t< traits::is_base_of_v< typename traits::member_function_traits<Fd>::class_type, traits::remove_reference_t<T>>,
+                invoke_pmd_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper >,
+                invoke_pmd_refwrap, invoke_pmd_pointer>>
+        {};
+
+        // Specialization for function objects.
+        template<class F, class T, class Fd>
+        struct invoker_helper<F, T, Fd, false, false> : invoke_functor
+        {};
+
+        // Primary template
+        template<class F, class... Args>
+        struct invoker;
+
+        // Specialization for 0 arguments.
+        template<class F>
+        struct invoker<F> : invoke_functor
+        {};
+
+        // Specialization for 1 or more arguments.
+        template<class F, class T, class... Args>
+        struct invoker<F, T, Args...> : invoker_helper<F, T>
+        {};
+        
+        template<class F, class... Args>
+        constexpr auto invoke(F&& f, Args&&... args)
+            noexcept(noexcept(invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...)))
+            -> decltype(invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...))
+        {
+            return invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...);
         }
 
     } // namespace detail
@@ -218,7 +360,7 @@ namespace signals
      * A slot object holds state information, and a callable to to be called
      * whenever the function call operator is called.
      */
-    template <typename Func, typename Ptr = std::nullptr_t>
+    template <class Func, class Ptr = std::nullptr_t>
     class slot
     {
     public:
@@ -232,22 +374,22 @@ namespace signals
             , ptr{ std::forward<Ptr>(p) }
         {}
 
-        template <typename... Args>
+        template <class... Args>
         constexpr decltype(auto) operator()(Args&&... args)
         {
             return do_invoke(func, ptr, std::forward<Args>(args)...);
         }
 
     private:
-        template<typename F, typename P, typename... Args>
-        constexpr detail::trait::enable_if_t<detail::trait::is_null_pointer_v<detail::trait::decay_t<P>>, std::invoke_result_t<F, Args...>>
+        template<class F, class P, class... Args>
+        constexpr detail::trait::enable_if_t<detail::trait::is_null_pointer_v<detail::trait::decay_t<P>>, detail::trait::invoke_result_t<F, Args...>>
             do_invoke(F&& f, P&&, Args&&... args)
         {
             return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
         }
 
-        template<typename F, typename P, typename... Args>
-        constexpr detail::trait::enable_if_t<!detail::trait::is_null_pointer_v<detail::trait::decay_t<P>>, std::invoke_result_t<F, P, Args...>>
+        template<class F, class P, class... Args>
+        constexpr detail::trait::enable_if_t<!detail::trait::is_null_pointer_v<detail::trait::decay_t<P>>, detail::trait::invoke_result_t<F, P, Args...>>
             do_invoke(F&& f, P&& p, Args&&... args)
         {
             return std::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
@@ -257,13 +399,13 @@ namespace signals
         detail::trait::decay_t<Ptr> ptr;
     };
 
-    template <typename Func>
+    template <class Func>
     slot<Func, std::nullptr_t> make_slot(Func&& f)
     {
         return slot<Func, std::nullptr_t>(std::forward<Func>(f));
     }
 
-    template <typename Func, typename Ptr>
+    template <class Func, class Ptr>
     slot<Func, Ptr> make_slot(Func&& f, Ptr&& p)
     {
         return slot<Func, Ptr>(std::forward<Func>(f), std::forward<Ptr>(p));
