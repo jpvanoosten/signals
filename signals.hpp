@@ -38,7 +38,6 @@
 
 namespace signals
 {
-
 /*
  * A slot object holds state information, and a callable to to be called
  * whenever the function call operator is called.
@@ -58,7 +57,7 @@ public:
     {}
 
     template <typename... Args>
-    decltype(auto) operator()(Args&&... args)
+    constexpr decltype(auto) operator()(Args&&... args)
     {
         return do_invoke(func, ptr, std::forward<Args>(args)...);
     }
