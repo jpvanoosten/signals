@@ -5,7 +5,7 @@
 
 using namespace signals;
 
-void func()
+void void_func()
 {
     std::cout << "Func" << std::endl;
     return;
@@ -35,7 +35,7 @@ struct Functor
 
 TEST(slot, TestVoid)
 {
-    auto s = make_slot(&func);
+    auto s = make_slot(&void_func);
     s();
 }
 
