@@ -111,6 +111,10 @@ namespace signals
             using void_t = typename make_void<T...>::type;
 
             // since C++17
+            template< class T >
+            constexpr bool is_void_v = std::is_void<T>::value;
+
+            // since C++17
             // @see https://en.cppreference.com/w/cpp/types/conjunction
             template<class...> struct conjunction : std::true_type {};
             template<class B1> struct conjunction<B1> : B1 { };
@@ -122,6 +126,42 @@ namespace signals
             template<class... B>
             constexpr bool conjunction_v = conjunction<B...>::value;
 
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/disjunction
+            template<class...> struct disjunction : std::false_type {};
+            template<class B1> struct disjunction<B1> : B1 {};
+            template<class B1, class... Bn>
+            struct disjunction<B1, Bn...> : conditional_t<bool(B1::value), B1, disjunction<Bn...>> {};
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/disjunction
+            template<class... B>
+            constexpr bool disjunction_v = disjunction<B...>::value;
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_convertible
+            template< class From, class To >
+            constexpr bool is_convertible_v = std::is_convertible<From, To>::value;
+
+            template<class To>
+            void implicitly_convert_to(To) noexcept; // not defined
+
+            // since C++20
+            // @see https://en.cppreference.com/w/cpp/types/is_convertible
+            template <class From, class To, bool = is_convertible_v<From, To>, bool = is_void_v<To>>
+            constexpr bool is_nothrow_convertible_v = noexcept(implicitly_convert_to<_To>(std::declval<From>()));
+
+            template <class From, class To, bool IsVoid>
+            constexpr bool is_nothrow_convertible_v<From, To, false, IsVoid> = false;
+
+            template <class From, class To>
+            constexpr bool is_nothrow_convertible_v<From, To, true, true> = true;
+
+            // since C++20
+            // @see https://en.cppreference.com/w/cpp/types/is_convertible
+            template <class From, class To>
+            struct is_nothrow_convertible : std::bool_constant<is_nothrow_convertible_v<From, To>> 
+            {};
 
             // since C++20
             // @see https://en.cppreference.com/w/cpp/types/remove_cvref
@@ -354,6 +394,41 @@ namespace signals
             return invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...);
         }
 
+        namespace traits
+        {
+            // Invoke traits when Callable isn't callable with Args
+            template<class Void, class... Args>
+            struct invoke_traits
+            {
+                using is_invocable = std::false_type;
+                using is_nothrow_invocable = std::false_type;
+                template<class R>
+                using is_invocable_r = std::false_type;
+                template<class R>
+                using is_nothrow_invocable_r = std::false_type;
+            };
+
+            // Invoke traits when Callable is callable with Args
+            template<class... Args>
+            struct invoke_traits<void_t<decltype(::signals::detail::invoke(std::declval<Args>()...))>, Args...>
+            {
+                using type = decltype(::signals::detail::invoke(std::declval<Args>()...));
+                using is_invocable = std::true_type;
+                using is_nothrow_invocable = std::bool_constant<noexcept(::signals::detail::invoke(std::declval<Args>()...))>;
+                template<class R>
+                using is_invocable_r = std::bool_constant<disjunction_v<std::is_void<R>, std::is_convertible<type, R>>>;
+                template<class R>
+                using is_nothrow_invocable_r = std::bool_constant<conjunction_v<is_nothrow_invocable, disjunction<std::is_void<R>, is_nothrow_convertible<type, R>>>>;
+            };
+        } // namespace traits
+
+        template<class F, class... Args>
+        struct invoke_result : traits::invoke_traits<void, F, Args...>
+        {};
+
+        template<class F, class... Args>
+        using invoke_result_t = typename traits::invoke_traits<void, F, Args...>::type;
+
     } // namespace detail
 
     /*
@@ -382,21 +457,21 @@ namespace signals
 
     private:
         template<class F, class P, class... Args>
-        constexpr detail::trait::enable_if_t<detail::trait::is_null_pointer_v<detail::trait::decay_t<P>>, detail::trait::invoke_result_t<F, Args...>>
+        constexpr detail::traits::enable_if_t<detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, Args...>>
             do_invoke(F&& f, P&&, Args&&... args)
         {
             return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
         }
 
         template<class F, class P, class... Args>
-        constexpr detail::trait::enable_if_t<!detail::trait::is_null_pointer_v<detail::trait::decay_t<P>>, detail::trait::invoke_result_t<F, P, Args...>>
+        constexpr detail::traits::enable_if_t<!detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, P, Args...>>
             do_invoke(F&& f, P&& p, Args&&... args)
         {
             return std::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
         }
 
-        detail::trait::decay_t<Func> func;
-        detail::trait::decay_t<Ptr> ptr;
+        detail::traits::decay_t<Func> func;
+        detail::traits::decay_t<Ptr> ptr;
     };
 
     template <class Func>
