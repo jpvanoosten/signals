@@ -78,6 +78,11 @@ namespace sig
             using remove_reference_t = typename std::remove_reference<T>::type;
 
             // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/integral_constant
+            template <bool B>
+            using bool_constant = std::integral_constant<bool, B>;
+
+            // since C++17
             // @see https://en.cppreference.com/w/cpp/types/is_base_of
             template<class Base, class Derived>
             constexpr bool is_base_of_v = std::is_base_of<Base, Derived>::value;
@@ -149,7 +154,7 @@ namespace sig
             // since C++20
             // @see https://en.cppreference.com/w/cpp/types/is_convertible
             template <class From, class To, bool = is_convertible_v<From, To>, bool = is_void_v<To>>
-            constexpr bool is_nothrow_convertible_v = noexcept(implicitly_convert_to<_To>(std::declval<From>()));
+            constexpr bool is_nothrow_convertible_v = noexcept(implicitly_convert_to<To>(std::declval<From>()));
 
             template <class From, class To, bool IsVoid>
             constexpr bool is_nothrow_convertible_v<From, To, false, IsVoid> = false;
@@ -160,7 +165,7 @@ namespace sig
             // since C++20
             // @see https://en.cppreference.com/w/cpp/types/is_convertible
             template <class From, class To>
-            struct is_nothrow_convertible : std::bool_constant<is_nothrow_convertible_v<From, To>> 
+            struct is_nothrow_convertible : bool_constant<is_nothrow_convertible_v<From, To>> 
             {};
 
             // since C++20
@@ -416,11 +421,11 @@ namespace sig
             {
                 using type = decltype(sig::detail::invoke(std::declval<Args>()...));
                 using is_invocable = std::true_type;
-                using is_nothrow_invocable = std::bool_constant<noexcept(sig::detail::invoke(std::declval<Args>()...))>;
+                using is_nothrow_invocable = bool_constant<noexcept(sig::detail::invoke(std::declval<Args>()...))>;
                 template<class R>
-                using is_invocable_r = std::bool_constant<disjunction_v<std::is_void<R>, std::is_convertible<type, R>>>;
+                using is_invocable_r = bool_constant<disjunction_v<std::is_void<R>, std::is_convertible<type, R>>>;
                 template<class R>
-                using is_nothrow_invocable_r = std::bool_constant<conjunction_v<is_nothrow_invocable, disjunction<std::is_void<R>, is_nothrow_convertible<type, R>>>>;
+                using is_nothrow_invocable_r = bool_constant<conjunction_v<is_nothrow_invocable, disjunction<std::is_void<R>, is_nothrow_convertible<type, R>>>>;
             };
 
             // since C++17
@@ -501,7 +506,12 @@ namespace sig
         {}
 
         template <class... Args>
-        constexpr decltype(auto) operator()(Args&&... args) noexcept(noexcept(do_invoke(func, ptr, std::forward<Args>(args)...)))
+        constexpr decltype(auto) operator()(Args&&... args)
+            noexcept(
+                noexcept(detail::traits::conditional_t<
+                    detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<Ptr>>, 
+                    detail::traits::is_nothrow_invocable<Func, Args...>, 
+                    detail::traits::is_nothrow_invocable<Func, Ptr, Args...>>::value))
         {
             return do_invoke(func, ptr, std::forward<Args>(args)...);
         }
