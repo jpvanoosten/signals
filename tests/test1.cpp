@@ -3,10 +3,10 @@
 
 #include <iostream>
 
-using namespace signals;
+using namespace sig;
 using namespace std::placeholders;
 
-void void_func()
+void void_func() noexcept
 {
     std::cout << "Func" << std::endl;
     return;
@@ -26,7 +26,7 @@ struct Functor
     , m_j(j)
     {}
 
-    int sum()
+    int sum() const noexcept
     {
         return m_i + m_j;
     }
@@ -42,12 +42,12 @@ public:
     , m_j(j)
     {}
 
-    int multiply(int i, int j)
+    int multiply(int i, int j) const noexcept
     {
         return i * j;
     }
 
-    virtual int sum()
+    virtual int sum() const noexcept
     {
         return m_i + m_j;
     }
@@ -63,7 +63,7 @@ public:
     : Base(i, j)
     {}
 
-    virtual int sum() override
+    virtual int sum() const noexcept override
     {
         return Base::sum() + 1;
     }
@@ -121,6 +121,30 @@ TEST(slot, Virtual)
     Base* b = new Derived(3, 5);
 
     auto s = make_slot(&Base::sum, b);
+
+    auto res = s();
+    EXPECT_EQ(res, 9);
+
+    delete b;
+}
+
+TEST(slot, RefWrap)
+{
+    Base* b = new Derived(3, 5);
+
+    auto s = make_slot(&Base::sum, std::ref(*b));
+
+    auto res = s();
+    EXPECT_EQ(res, 9);
+
+    delete b;
+}
+
+TEST(slot, CRefWrap)
+{
+    Base* b = new Derived(3, 5);
+
+    auto s = make_slot(&Base::sum, std::cref(*b));
 
     auto res = s();
     EXPECT_EQ(res, 9);

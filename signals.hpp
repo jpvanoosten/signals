@@ -36,7 +36,7 @@
 #include <functional>
 #include <type_traits>
 
-namespace signals
+namespace sig
 {
     namespace detail
     {
@@ -386,6 +386,8 @@ namespace signals
         struct invoker<F, T, Args...> : invoker_helper<F, T>
         {};
         
+        // since C++17
+        // @see https://en.cppreference.com/w/cpp/utility/functional/invoke
         template<class F, class... Args>
         constexpr auto invoke(F&& f, Args&&... args)
             noexcept(noexcept(invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...)))
@@ -410,16 +412,61 @@ namespace signals
 
             // Invoke traits when Callable is callable with Args
             template<class... Args>
-            struct invoke_traits<void_t<decltype(::signals::detail::invoke(std::declval<Args>()...))>, Args...>
+            struct invoke_traits<void_t<decltype(sig::detail::invoke(std::declval<Args>()...))>, Args...>
             {
-                using type = decltype(::signals::detail::invoke(std::declval<Args>()...));
+                using type = decltype(sig::detail::invoke(std::declval<Args>()...));
                 using is_invocable = std::true_type;
-                using is_nothrow_invocable = std::bool_constant<noexcept(::signals::detail::invoke(std::declval<Args>()...))>;
+                using is_nothrow_invocable = std::bool_constant<noexcept(sig::detail::invoke(std::declval<Args>()...))>;
                 template<class R>
                 using is_invocable_r = std::bool_constant<disjunction_v<std::is_void<R>, std::is_convertible<type, R>>>;
                 template<class R>
                 using is_nothrow_invocable_r = std::bool_constant<conjunction_v<is_nothrow_invocable, disjunction<std::is_void<R>, is_nothrow_convertible<type, R>>>>;
             };
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template<class F, class... Args>
+            struct is_invocable : invoke_traits<void, F, Args...>::is_invocable
+            {};
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template<class F, class... Args>
+            constexpr bool is_invocable_v = is_invocable<F, Args...>::value;
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template<class F, class... Args>
+            struct is_nothrow_invocable : invoke_traits<void, F, Args...>::is_nothrow_invocable 
+            {};
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template<class F, class... Args>
+            constexpr bool is_nothrow_invocable_v = is_nothrow_invocable<F, Args...>::value;
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template <class R, class F, class... Args>
+            struct is_invocable_r : invoke_traits<R, F, Args...>::is_invocable_r
+            {};
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template <class R, class F, class... Args>
+            constexpr bool is_invocable_r_v = is_invocable_r<R, F, Args...>::value;
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template <class R, class F, class... Args>
+            struct is_nothrow_invocable_r : invoke_traits<void, F, Args...>::template is_nothrow_invocable_r<R>
+            {};
+
+            // since C++17
+            // @see https://en.cppreference.com/w/cpp/types/is_invocable
+            template<class R, class F, class... Args>
+            constexpr bool is_nothrow_invocable_r_v = is_nothrow_invocable_r<R, F, Args...>::value;
+
         } // namespace traits
 
         template<class F, class... Args>
@@ -450,7 +497,7 @@ namespace signals
         {}
 
         template <class... Args>
-        constexpr decltype(auto) operator()(Args&&... args)
+        constexpr decltype(auto) operator()(Args&&... args) noexcept(noexcept(do_invoke(func, ptr, std::forward<Args>(args)...)))
         {
             return do_invoke(func, ptr, std::forward<Args>(args)...);
         }
@@ -458,14 +505,14 @@ namespace signals
     private:
         template<class F, class P, class... Args>
         constexpr detail::traits::enable_if_t<detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, Args...>>
-            do_invoke(F&& f, P&&, Args&&... args)
+            do_invoke(F&& f, P&&, Args&&... args) noexcept(detail::traits::is_nothrow_invocable_v<F, Args...>)
         {
             return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
         }
 
         template<class F, class P, class... Args>
         constexpr detail::traits::enable_if_t<!detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, P, Args...>>
-            do_invoke(F&& f, P&& p, Args&&... args)
+            do_invoke(F&& f, P&& p, Args&&... args) noexcept(detail::traits::is_nothrow_invocable_v<F, P, Args...>)
         {
             return std::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
         }
@@ -486,4 +533,4 @@ namespace signals
         return slot<Func, Ptr>(std::forward<Func>(f), std::forward<Ptr>(p));
     }
 
-} // namespace signals
+} // namespace sig
