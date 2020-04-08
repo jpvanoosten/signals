@@ -100,6 +100,22 @@ TEST(slot, Lambda)
     EXPECT_EQ(res, 8);
 }
 
+TEST(slot, BindLambda)
+{
+    auto s = make_slot(std::bind(lambda, 3, 5));
+
+    auto res = s();
+    EXPECT_EQ(res, 8);
+}
+
+TEST(slot, PartialBindLambda)
+{
+    auto s = make_slot(std::bind(lambda, _1, 5));
+
+    auto res = s(3);
+    EXPECT_EQ(res, 8);
+}
+
 TEST(slot, Virtual)
 {
     Base* b = new Derived(3, 5);
@@ -131,4 +147,3 @@ TEST(slot, PartialBind)
     auto res = s(3);
     EXPECT_EQ(res, 15);
 }
-
