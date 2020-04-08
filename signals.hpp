@@ -486,6 +486,10 @@ namespace sig
     class slot
     {
     public:
+        
+        using func_type = detail::traits::decay_t<Func>;
+        using ptr_type = detail::traits::decay_t<Ptr>;
+
         constexpr slot(Func&& f)
             : func{ std::forward<Func>(f) }
             , ptr{ nullptr }
@@ -507,18 +511,18 @@ namespace sig
         constexpr detail::traits::enable_if_t<detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, Args...>>
             do_invoke(F&& f, P&&, Args&&... args) noexcept(detail::traits::is_nothrow_invocable_v<F, Args...>)
         {
-            return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
+            return detail::invoke(std::forward<F>(f), std::forward<Args>(args)...);
         }
 
         template<class F, class P, class... Args>
         constexpr detail::traits::enable_if_t<!detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, P, Args...>>
             do_invoke(F&& f, P&& p, Args&&... args) noexcept(detail::traits::is_nothrow_invocable_v<F, P, Args...>)
         {
-            return std::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
+            return detail::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
         }
 
-        detail::traits::decay_t<Func> func;
-        detail::traits::decay_t<Ptr> ptr;
+        func_type func;
+        ptr_type ptr;
     };
 
     template <class Func>
