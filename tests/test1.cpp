@@ -4,6 +4,7 @@
 #include <iostream>
 
 using namespace signals;
+using namespace std::placeholders;
 
 void void_func()
 {
@@ -33,13 +34,48 @@ struct Functor
     int m_i, m_j;
 };
 
-TEST(slot, TestVoid)
+class Base
+{
+public:
+    Base(int i, int j)
+    : m_i(i)
+    , m_j(j)
+    {}
+
+    int multiply(int i, int j)
+    {
+        return i * j;
+    }
+
+    virtual int sum()
+    {
+        return m_i + m_j;
+    }
+
+protected:
+    int m_i, m_j;
+};
+
+class Derived : public Base
+{
+public:
+    Derived(int i, int j)
+    : Base(i, j)
+    {}
+
+    virtual int sum() override
+    {
+        return Base::sum() + 1;
+    }
+};
+
+TEST(slot, VoidFunc)
 {
     auto s = make_slot(&void_func);
     s();
 }
 
-TEST(slot, TestInt)
+TEST(slot, Int)
 {
     auto s = make_slot(&sum);
     auto res = s(3, 5);
@@ -47,7 +83,7 @@ TEST(slot, TestInt)
     EXPECT_EQ(res, 8);
 }
 
-TEST(slot, TestMemFunc)
+TEST(slot, MemFunc)
 {
     Functor f(3, 5);
     auto s = make_slot(&Functor::sum, &f);
@@ -56,10 +92,43 @@ TEST(slot, TestMemFunc)
     EXPECT_EQ(res, 8);
 }
 
-TEST(slot, TestLambda)
+TEST(slot, Lambda)
 {
     auto s = make_slot(lambda);
 
     auto res = s(3, 5);
     EXPECT_EQ(res, 8);
 }
+
+TEST(slot, Virtual)
+{
+    Base* b = new Derived(3, 5);
+
+    auto s = make_slot(&Base::sum, b);
+
+    auto res = s();
+    EXPECT_EQ(res, 9);
+
+    delete b;
+}
+
+TEST(slot, Bind)
+{
+    Derived d(3, 5);
+
+    auto s = make_slot(std::bind(&Derived::multiply, &d, 3, 5));
+
+    auto res = s();
+    EXPECT_EQ(res, 15);
+}
+
+TEST(slot, PartialBind)
+{
+    Derived d(3, 5);
+
+    auto s = make_slot(std::bind(&Derived::multiply, &d, _1, 5));
+
+    auto res = s(3);
+    EXPECT_EQ(res, 15);
+}
+
