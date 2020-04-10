@@ -517,6 +517,7 @@ namespace sig
             , m_blocked(false)
         {}
 
+        // Note: The copy constructor is deleted for atomic types.
         constexpr slot(const slot& s) noexcept
             : m_func(s.m_func)
             , m_ptr(s.m_ptr)
@@ -529,9 +530,44 @@ namespace sig
             : m_func(std::move(s.m_func))
             , m_ptr(std::move(s.m_ptr))
             , m_index(s.m_index)
+            , m_connected(s.m_connected)
+            , m_blocked(s.m_blocked)
+        {}
+
+        slot& operator=(const slot& s) noexcept
         {
-            m_connected.exchange(s.m_connected);
-            m_blocked.exchange(s.m_blocked);
+            m_func = s.m_func;
+            m_ptr = s.m_ptr;
+            m_index = s.m_index;
+            m_connected = s.m_connected;
+            m_blocked = s.m_blocked;
+
+            return *this;
+        }
+
+        slot& operator=(slot&& s) noexcept
+        {
+            m_func = s.m_func;
+            m_ptr = s.m_ptr;
+            m_index = s.m_index;
+            m_connected = s.m_connected;
+            m_blocked = s.m_blocked;
+
+            return *this;
+        }
+
+        // TODO: Figure this out.
+        template<class F, class P>
+        bool operator==(const slot<F, P>& s) const noexcept
+        {
+            return reinterpret_cast<void*>(m_func) == reinterpret_cast<void*>(s.m_func) &&
+                   reinterpret_cast<void*>(m_ptr) == reinterpret_cast<void*>(s.m_ptr);
+        }
+
+        template<class F, class P>
+        bool operator!=(const slot<F, P>& s) const noexcept
+        {
+            return !(*this == s);
         }
 
         bool connected() const noexcept
@@ -625,16 +661,139 @@ namespace sig
     class connection
     {
     public:
+        using weak_slot = std::weak_ptr<slot<Func, Ptr>>;
+
         connection() = default;
-        ~connection() = default;
+        virtual ~connection() = default;
 
         connection(const connection&) noexcept = default;
         connection(connection&&) noexcept = default;
         connection& operator=(const connection&) noexcept = default;
         connection& operator=(connection&&) noexcept = default;
 
+        bool valid() const noexcept
+        {
+            return !m_slot.expired();
+        }
+
+        bool connected() const noexcept
+        {
+            const auto s = m_slot.lock();
+            return s && s->connected();
+        }
+
+        bool disconnect() noexcept
+        {
+            auto s = m_slot.lock();
+            return s && s->disconnect();
+        }
+
+        bool blocked() const noexcept
+        {
+            const auto s = m_slot.lock();
+            return s && s->blocked();
+        }
+
+        void block() noexcept
+        {
+            if (auto s = m_slot.lock())
+            {
+                s->block();
+            }
+        }
+
+        void unblock() noexcept
+        {
+            if (auto s = m_slot.lock())
+            {
+                s->unblock();
+            }
+        }
+    protected:
+
+        explicit connection(weak_slot&& s) noexcept
+            : m_slot(std::move(s))
+        {}
+
     private:
-        std::weak_ptr<slot<Func, Ptr>> m_slot;
+        weak_slot m_slot;
+    };
+
+    /**
+     * A scoped_blocker blocks a slot until destruction of the scoped blocker.
+     */
+    template<class Func, class Ptr>
+    class scoped_blocker
+    {
+        using weak_slot = std::weak_ptr<slot<Func, Ptr>>;
+
+        scoped_blocker() = default;
+        scoped_blocker(const scoped_blocker&) = delete;
+        scoped_blocker(scoped_blocker&& o) noexcept
+            : m_slot{ std::move(o.m_slot) }
+        {}
+
+        scoped_blocker(weak_slot slot)
+            : m_slot(slot)
+        {
+            if (auto s = m_slot.lock())
+            {
+                s->block();
+            }
+        }
+
+        ~scoped_blocker() noexcept
+        {
+            release();
+        }
+
+        scoped_blocker& operator=(const scoped_blocker&) = delete;
+        scoped_blocker& operator=(scoped_blocker&& o) noexcept
+        {
+            release();
+            m_slot.swap(o.m_slot);
+            return *this;
+        }
+
+    private:
+        void release() noexcept
+        {
+            if (auto s = m_slot.lock())
+            {
+                s->unblock();
+            }
+        }
+
+        weak_slot m_slot;
+    };
+
+    /**
+     * A scoped_connection disconnects the slot from the signal upon destruction.
+     */
+    template<class Func, class Ptr>
+    class scoped_connection : public connection<Func, Ptr>
+    {
+    public:
+        scoped_connection() = default;
+        ~scoped_connection() override
+        {
+            disconnect();
+        }
+
+        scoped_connection(const connection& c) noexcept
+            : connection(c)
+        {}
+
+        scoped_connection(connection&& c) noexcept
+            : connection(std::move(c))
+        {}
+
+        scoped_connection(scoped_connection&& o) noexcept
+            : connection(std::move(o.m_slot))
+        {}
+
+        scoped_connection(const scoped_connection&) noexcept = delete;
+        scoped_connection& operator=(const scoped_connection&) noexcept = delete;
     };
 
 } // namespace sig
