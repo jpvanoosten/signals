@@ -165,7 +165,7 @@ namespace sig
             // since C++20
             // @see https://en.cppreference.com/w/cpp/types/is_convertible
             template <class From, class To>
-            struct is_nothrow_convertible : bool_constant<is_nothrow_convertible_v<From, To>> 
+            struct is_nothrow_convertible : bool_constant<is_nothrow_convertible_v<From, To>>
             {};
 
             // since C++20
@@ -187,7 +187,7 @@ namespace sig
             {};
 
             template<class T>
-            struct is_weak_ptr< T, void_t< 
+            struct is_weak_ptr< T, void_t<
                 decltype(std::declval<T>().expired()),
                 decltype(std::declval<T>().lock()),
                 decltype(std::declval<T>().reset()) > >
@@ -242,13 +242,18 @@ namespace sig
                 using reference_type = const T&;
             };
 
-             // Detect template specialization.
-             // @see https://stackoverflow.com/questions/16337610/how-to-know-if-a-type-is-a-specialization-of-stdvector
-             template<class Type, template <class...> class Template>
-             constexpr bool is_specialization_v = false;
+            // Detect template specialization.
+            // @see https://stackoverflow.com/questions/16337610/how-to-know-if-a-type-is-a-specialization-of-stdvector
+            template<class Type, template<class...> class Template>
+            struct is_specialization : std::false_type
+            {};
 
-            template<template <class...> class Template, typename... Types>
-            constexpr bool is_specialization_v<Template<Types...>, Template> = true;
+            template<template<class...> class Template, typename... Types>
+            struct is_specialization<Template<Types...>, Template> : std::true_type
+            {};
+
+            template<class Type, template<class...> class Template>
+            constexpr bool is_specialization_v = is_specialization<Type, Template>::value;
 
         } // namespace traits
 
@@ -354,22 +359,22 @@ namespace sig
         template<class F, class T, class Fd = traits::remove_cvref_t<F>,
             bool is_pmf = traits::is_member_function_pointer_v<Fd>,
             bool is_pmd = traits::is_member_object_pointer_v<Fd>>
-        struct invoker_helper;
+            struct invoker_helper;
 
         // Specialization for pointer to member function.
         template<class F, class T, class Fd>
         struct invoker_helper<F, T, Fd, true, false>
             : traits::conditional_t< traits::is_base_of_v< typename traits::member_function_traits<Fd>::class_type, traits::remove_reference_t<T>>,
-                invoke_pmf_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper>,
-                invoke_pmf_refwrap, invoke_pmf_pointer>>
+            invoke_pmf_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper>,
+            invoke_pmf_refwrap, invoke_pmf_pointer>>
         {};
 
         // Specialization for pointer to member data.
         template<class F, class T, class Fd>
         struct invoker_helper<F, T, Fd, false, true>
             : traits::conditional_t< traits::is_base_of_v< typename traits::member_function_traits<Fd>::class_type, traits::remove_reference_t<T>>,
-                invoke_pmd_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper >,
-                invoke_pmd_refwrap, invoke_pmd_pointer>>
+            invoke_pmd_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper >,
+            invoke_pmd_refwrap, invoke_pmd_pointer>>
         {};
 
         // Specialization for function objects.
@@ -390,7 +395,7 @@ namespace sig
         template<class F, class T, class... Args>
         struct invoker<F, T, Args...> : invoker_helper<F, T>
         {};
-        
+
         // since C++17
         // @see https://en.cppreference.com/w/cpp/utility/functional/invoke
         template<class F, class... Args>
@@ -442,7 +447,7 @@ namespace sig
             // since C++17
             // @see https://en.cppreference.com/w/cpp/types/is_invocable
             template<class F, class... Args>
-            struct is_nothrow_invocable : invoke_traits<void, F, Args...>::is_nothrow_invocable 
+            struct is_nothrow_invocable : invoke_traits<void, F, Args...>::is_nothrow_invocable
             {};
 
             // since C++17
@@ -491,7 +496,7 @@ namespace sig
     class slot
     {
     public:
-        
+
         using func_type = detail::traits::decay_t<Func>;
         using ptr_type = detail::traits::decay_t<Ptr>;
 
@@ -509,8 +514,8 @@ namespace sig
         constexpr decltype(auto) operator()(Args&&... args)
             noexcept(
                 noexcept(detail::traits::conditional_t<
-                    detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<Ptr>>, 
-                    detail::traits::is_nothrow_invocable<Func, Args...>, 
+                    detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<Ptr>>,
+                    detail::traits::is_nothrow_invocable<Func, Args...>,
                     detail::traits::is_nothrow_invocable<Func, Ptr, Args...>>::value))
         {
             return do_invoke(func, ptr, std::forward<Args>(args)...);
