@@ -34,6 +34,7 @@
 #include <cstddef>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <type_traits>
 
 namespace sig
@@ -500,15 +501,68 @@ namespace sig
         using func_type = detail::traits::decay_t<Func>;
         using ptr_type = detail::traits::decay_t<Ptr>;
 
-        constexpr slot(Func&& f)
-            : func{ std::forward<Func>(f) }
-            , ptr{ nullptr }
+        constexpr slot(Func&& f) noexcept
+            : m_func{ std::forward<Func>(f) }
+            , m_ptr{ nullptr }
+            , m_index(0)
+            , m_connected(true)
+            , m_blocked(false)
         {}
 
-        constexpr slot(Func&& f, Ptr&& p)
-            : func{ std::forward<Func>(f) }
-            , ptr{ std::forward<Ptr>(p) }
+        constexpr slot(Func&& f, Ptr&& p) noexcept
+            : m_func{ std::forward<Func>(f) }
+            , m_ptr{ std::forward<Ptr>(p) }
+            , m_index(0)
+            , m_connected(true)
+            , m_blocked(false)
         {}
+
+        constexpr slot(const slot& s) noexcept
+            : m_func(s.m_func)
+            , m_ptr(s.m_ptr)
+            , m_index(s.m_index)
+            , m_connected(s.m_connected)
+            , m_blocked(s.m_blocked)
+        {}
+
+        constexpr slot(slot&& s) noexcept
+            : m_func(std::move(s.m_func))
+            , m_ptr(std::move(s.m_ptr))
+            , m_index(s.m_index)
+        {
+            m_connected.exchange(s.m_connected);
+            m_blocked.exchange(s.m_blocked);
+        }
+
+        bool connected() const noexcept
+        {
+            return m_connected;
+        }
+
+        bool disconnect() noexcept
+        {
+            bool ret = m_connected.exchange(false);
+            if (ret)
+            {
+                // Do something if it was previously connected.
+            }
+            return ret;
+        }
+
+        bool blocked() const noexcept
+        {
+            return m_blocked;
+        }
+
+        void block() noexcept
+        {
+            m_blocked = true;
+        }
+
+        void unblock() noexcept
+        {
+            m_blocked = false;
+        }
 
         template <class... Args>
         constexpr decltype(auto) operator()(Args&&... args)
@@ -518,7 +572,7 @@ namespace sig
                     detail::traits::is_nothrow_invocable<Func, Args...>,
                     detail::traits::is_nothrow_invocable<Func, Ptr, Args...>>::value))
         {
-            return do_invoke(func, ptr, std::forward<Args>(args)...);
+            return do_invoke(m_func, m_ptr, std::forward<Args>(args)...);
         }
 
     private:
@@ -536,8 +590,20 @@ namespace sig
             return detail::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
         }
 
-        func_type func;
-        ptr_type ptr;
+        std::size_t& index()
+        {
+            return index;
+        }
+
+        func_type m_func;
+        ptr_type m_ptr;
+
+        // Index of the slot in the signal.
+        std::size_t m_index;
+        // Is the slot currently connected to the signal?
+        std::atomic_bool m_connected;
+        // Is the slot blocked?
+        std::atomic_bool m_blocked;
     };
 
     template <class Func>
@@ -551,5 +617,24 @@ namespace sig
     {
         return slot<Func, Ptr>(std::forward<Func>(f), std::forward<Ptr>(p));
     }
+
+    /**
+     * A connection object tracks a slot that is connected to a signal.
+     */
+    template<class Func, class Ptr>
+    class connection
+    {
+    public:
+        connection() = default;
+        ~connection() = default;
+
+        connection(const connection&) noexcept = default;
+        connection(connection&&) noexcept = default;
+        connection& operator=(const connection&) noexcept = default;
+        connection& operator=(connection&&) noexcept = default;
+
+    private:
+        std::weak_ptr<slot<Func, Ptr>> m_slot;
+    };
 
 } // namespace sig
