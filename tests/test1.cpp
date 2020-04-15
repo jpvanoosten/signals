@@ -1,9 +1,8 @@
-#include <signals.hpp>
+#include <signals2.hpp>
 #include <gtest/gtest.h>
 
 #include <iostream>
 
-using namespace sig;
 using namespace std::placeholders;
 
 void void_func() noexcept
@@ -31,7 +30,7 @@ struct Functor
         , m_j(j)
     {}
 
-    int sum() const noexcept
+    int operator()() const noexcept
     {
         return m_i + m_j;
     }
@@ -76,55 +75,56 @@ public:
 
 TEST(slot, VoidFunc)
 {
-    auto s1 = make_slot(&void_func);
-    auto s2 = make_slot(&void_func);
-    auto s3 = make_slot(&void_func2);
+    using s = sig::slot<void(void)>;
+
+    auto s1 = s(&void_func);
+    auto s2 = s(&void_func);
+    auto s3 = s(&void_func2);
 
     s1();
     s2();
     s3();
-
-    EXPECT_TRUE(s1 == s2);
-    EXPECT_TRUE(s2 != s3);
 }
 
 TEST(slot, Int)
 {
-    auto s = make_slot(&sum);
-    auto res = s(3, 5);
+    using s = sig::slot<int(int, int)>;
+
+    auto s1 = s(&sum);
+    auto res = s1(3, 5);
 
     EXPECT_EQ(res, 8);
 }
 
-TEST(slot, MemFunc)
-{
-    Functor f(3, 5);
-    auto s1 = make_slot(&Functor::sum, &f);
-
-    auto res = s1();
-    EXPECT_EQ(res, 8);
-
-    auto s2 = make_slot(&Functor::sum, &f);
-
-    EXPECT_TRUE(s1 == s2);
-}
-
+//TEST(slot, MemFunc)
+//{
+//    Functor f(3, 5);
+//    auto s1 = make_slot(&Functor::sum, &f);
+//
+//    auto res = s1();
+//    EXPECT_EQ(res, 8);
+//
+//    auto s2 = make_slot(&Functor::sum, &f);
+//
+//    EXPECT_TRUE(s1 == s2);
+//}
+//
 TEST(slot, Lambda)
 {
-    auto s1 = make_slot(lambda);
-    auto s2 = make_slot(lambda);
+    using s = sig::slot<int(int,int)>;
+
+    auto s1 = s(lambda);
+    auto s2 = s(lambda);
 
     auto res = s1(3, 5);
     EXPECT_EQ(res, 8);
-
-    EXPECT_TRUE(s1 == s2);
 }
 
 TEST(slot, BindLambda)
 {
-    auto s1 = make_slot(std::bind(lambda, 3, 5));
-    auto s2 = make_slot(std::bind(lambda, _1, _2));
-    auto s3 = make_slot(std::bind(lambda, 3, 5));
+    auto s1 = sig::slot<int()>(std::bind(lambda, 3, 5));
+    auto s2 = sig::slot<int(int,int)>(std::bind(lambda, _1, _2));
+    auto s3 = sig::slot<int()>(std::bind(lambda, 3, 5));
 
     {
         auto res = s1();
@@ -134,60 +134,58 @@ TEST(slot, BindLambda)
         auto res = s2(4, 5);
         EXPECT_EQ(res, 9);
     }
-
-    EXPECT_TRUE(s1 == s3);
-    EXPECT_TRUE(s1 != s2);
 }
 
 TEST(slot, PartialBindLambda)
 {
-    auto s = make_slot(std::bind(lambda, _1, 5));
+    auto s = sig::slot<int(int)>(std::bind(lambda, _1, 5));
 
     auto res = s(3);
     EXPECT_EQ(res, 8);
 }
 
-TEST(slot, Virtual)
-{
-    Base* b = new Derived(3, 5);
-
-    auto s = make_slot(&Base::sum, b);
-
-    auto res = s();
-    EXPECT_EQ(res, 9);
-
-    delete b;
-}
-
-TEST(slot, RefWrap)
-{
-    Base* b = new Derived(3, 5);
-
-    auto s = make_slot(&Base::sum, std::ref(*b));
-
-    auto res = s();
-    EXPECT_EQ(res, 9);
-
-    delete b;
-}
-
-TEST(slot, CRefWrap)
-{
-    Base* b = new Derived(3, 5);
-
-    auto s = make_slot(&Base::sum, std::cref(*b));
-
-    auto res = s();
-    EXPECT_EQ(res, 9);
-
-    delete b;
-}
-
+//
+//TEST(slot, Virtual)
+//{
+//    Base* b = new Derived(3, 5);
+//
+//    auto s = make_slot(&Base::sum, b);
+//
+//    auto res = s();
+//    EXPECT_EQ(res, 9);
+//
+//    delete b;
+//}
+//
+//TEST(slot, RefWrap)
+//{
+//    Base* b = new Derived(3, 5);
+//
+//    auto s = make_slot(&Base::sum, std::ref(*b));
+//
+//    auto res = s();
+//    EXPECT_EQ(res, 9);
+//
+//    delete b;
+//}
+//
+//TEST(slot, CRefWrap)
+//{
+//    Base* b = new Derived(3, 5);
+//
+//    auto s = make_slot(&Base::sum, std::cref(*b));
+//
+//    auto res = s();
+//    EXPECT_EQ(res, 9);
+//
+//    delete b;
+//}
+//
 TEST(slot, Bind)
 {
     Derived d(3, 5);
 
-    auto s = make_slot(std::bind(&Derived::multiply, &d, 3, 5));
+    auto s = sig::slot<int()>(std::bind(&Derived::multiply, &d, 3, 5));
 
     auto res = s();
     EXPECT_EQ(res, 15);
@@ -197,7 +195,7 @@ TEST(slot, PartialBind)
 {
     Derived d(3, 5);
 
-    auto s = make_slot(std::bind(&Derived::multiply, &d, _1, 5));
+    auto s = sig::slot<int(int)>(std::bind(&Derived::multiply, &d, _1, 5));
 
     auto res = s(3);
     EXPECT_EQ(res, 15);

@@ -13,6 +13,7 @@ FetchContent_MakeAvailable(googletest)
 
 set( HEADER_FILES
     ../signals.hpp
+    ../signals2.hpp
 )
 
 add_executable( signal_tests test1.cpp ${HEADER_FILES} )
