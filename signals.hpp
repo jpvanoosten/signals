@@ -56,57 +56,68 @@ namespace sig
             template <class U>
             struct is_reference_wrapper<std::reference_wrapper<U>> : std::true_type {};
 
-            // Invokes a function object.
-            template<class Func>
-            struct invoker
-            {
-                template<class F, class... Args>
-                static auto call(F&& f, Args&&... args) -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
-                {
-                    return std::forward<F>(f)(std::forward<Args>(args)...);
-                }
-            };
-
-            // Invoke a pointer to member function or pointer to member data.
-            template<class R, class Base>
-            struct invoker<R(Base::*)>
-            {
-                template<class T, class Td = decay_t<T>,
-                    class = enable_if_t<std::is_base_of<Base, Td>::value>>
-                static auto get(T&& t) -> T&&
-                {
-                    return t;
-                }
-
-                template<class T, class Td = decay_t<T>,
-                    class = enable_if_t<is_reference_wrapper<Td>::value>>
-                static auto get(T&& t) -> decltype(t.get())
-                {
-                    return t.get();
-                }
-
-                template<class T, class Td = decay_t<T>,
-                    class = enable_if_t<!std::is_base_of<Base, Td>::value>,
-                    class = enable_if_t<!is_reference_wrapper<Td>::value>>
-                static auto get(T&& t) -> decltype(*std::forward<T>(t))
-                {
-                    return *std::forward<T>(t);
-                }
-
-                template<class T, class... Args, class MT1,
-                    class = std::enable_if<std::is_function<MT1>::value>>
-                static auto call(MT1 Base::*pmf, T&& t, Args&&... args) -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
-                {
-                    return (get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
-                }
-
-                template<class T>
-                static auto call(R(Base::*pmd), T&& t) -> decltype(get(std::forward<T>(t)).*pmd)
-                {
-                    return get(std::forward<T>(t)).*pmd;
-                }
-            };
         } // namespace traits
+
+        // Invokes a function object.
+        // @see https://en.cppreference.com/w/cpp/types/result_of
+        template<class Func>
+        struct invoke_helper
+        {
+            // Call a function object.
+            template<class F, class... Args>
+            static auto call(F&& f, Args&&... args) -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
+            {
+                return std::forward<F>(f)(std::forward<Args>(args)...);
+            }
+        };
+
+        // Invoke a pointer to member function or pointer to member data.
+        // @see https://en.cppreference.com/w/cpp/types/result_of
+        template<class R, class Base>
+        struct invoke_helper<R(Base::*)>
+        {
+            // Get a reference type.
+            template<class T, class Td = traits::decay_t<T>,
+            class = traits::enable_if_t<std::is_base_of<Base, Td>::value>>
+            static auto get(T&& t) -> T&&
+            {
+                return t;
+            }
+
+            // Get a std::reference_wrapper
+            template<class T, class Td = traits::decay_t<T>,
+            class = traits::enable_if_t<traits::is_reference_wrapper<Td>::value>>
+            static auto get(T&& t) -> decltype(t.get())
+            {
+                return t.get();
+            }
+
+            // Get a pointer or pointer-like object (like smart_ptr, or unique_ptr)
+            template<class T, class Td = traits::decay_t<T>,
+            class = traits::enable_if_t<!std::is_base_of<Base, Td>::value>,
+            class = traits::enable_if_t<!traits::is_reference_wrapper<Td>::value>>
+            static auto get(T&& t) -> decltype(*std::forward<T>(t))
+            {
+                return *std::forward<T>(t);
+            }
+
+            // Call a pointer to a member function.
+            template<class T, class... Args, class MT1,
+            class = traits::enable_if_t<std::is_function<MT1>::value>>
+            static auto call(MT1 Base::* pmf, T&& t, Args&&... args) 
+                -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
+            {
+                return (get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
+            }
+
+            // Call a pointer to member data.
+            template<class T>
+            static auto call(R(Base::* pmd), T&& t) 
+                -> decltype(get(std::forward<T>(t)).*pmd)
+            {
+                return get(std::forward<T>(t)).*pmd;
+            }
+        };
 
         // Base class for slot implementations.
         template<typename R, typename... Args>
@@ -136,7 +147,7 @@ namespace sig
 
             virtual R operator()(Args&&... args) override
             {
-                return traits::invoker<Func>::call(m_Func, std::forward<Args>(args)...);
+                return invoke_helper<Func>::call(m_Func, std::forward<Args>(args)...);
             }
 
         private:
@@ -163,7 +174,7 @@ namespace sig
 
             virtual R operator()(Args&&... args) override
             {
-                return traits::invoker<Func>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+                return invoke_helper<Func>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
             }
 
         private:

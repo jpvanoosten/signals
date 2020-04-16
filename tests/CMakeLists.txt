@@ -15,7 +15,7 @@ set( HEADER_FILES
     ../signals.hpp
 )
 
-add_executable( signal_tests tests.cpp ${HEADER_FILES} )
+add_executable( signal_tests slot_tests.cpp ${HEADER_FILES} )
 target_link_libraries( signal_tests gtest gtest_main )
 target_include_directories( signal_tests 
     PUBLIC ../
