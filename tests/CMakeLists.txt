@@ -22,8 +22,4 @@ target_include_directories( signal_tests
     PUBLIC ../
 )
 
-#target_compile_features( signal_tests
-#    PUBLIC cxx_std_17
-#)
-
 gtest_discover_tests( signal_tests )

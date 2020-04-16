@@ -73,6 +73,16 @@ public:
     }
 };
 
+class PointerToMemberData
+{
+public:
+    PointerToMemberData(int v)
+    : value(v)
+    {}
+
+    int value;
+};
+
 TEST(slot, VoidFunc)
 {
     using s = sig::slot<void(void)>;
@@ -96,19 +106,14 @@ TEST(slot, Int)
     EXPECT_EQ(res, 8);
 }
 
-//TEST(slot, MemFunc)
-//{
-//    Functor f(3, 5);
-//    auto s1 = make_slot(&Functor::sum, &f);
-//
-//    auto res = s1();
-//    EXPECT_EQ(res, 8);
-//
-//    auto s2 = make_slot(&Functor::sum, &f);
-//
-//    EXPECT_TRUE(s1 == s2);
-//}
-//
+TEST(slot, Functor)
+{
+    auto s1 = sig::slot<int()>(Functor(3,5));
+
+    auto res = s1();
+    EXPECT_EQ(res, 8);
+}
+
 TEST(slot, Lambda)
 {
     using s = sig::slot<int(int,int)>;
@@ -144,43 +149,52 @@ TEST(slot, PartialBindLambda)
     EXPECT_EQ(res, 8);
 }
 
-//
-//TEST(slot, Virtual)
-//{
-//    Base* b = new Derived(3, 5);
-//
-//    auto s = make_slot(&Base::sum, b);
-//
-//    auto res = s();
-//    EXPECT_EQ(res, 9);
-//
-//    delete b;
-//}
-//
-//TEST(slot, RefWrap)
-//{
-//    Base* b = new Derived(3, 5);
-//
-//    auto s = make_slot(&Base::sum, std::ref(*b));
-//
-//    auto res = s();
-//    EXPECT_EQ(res, 9);
-//
-//    delete b;
-//}
-//
-//TEST(slot, CRefWrap)
-//{
-//    Base* b = new Derived(3, 5);
-//
-//    auto s = make_slot(&Base::sum, std::cref(*b));
-//
-//    auto res = s();
-//    EXPECT_EQ(res, 9);
-//
-//    delete b;
-//}
-//
+
+TEST(slot, Virtual)
+{
+    Base* b = new Derived(3, 5);
+
+    auto s1 = sig::slot<int()>(&Base::sum, b);
+    auto s2 = sig::slot<int()>(&Base::sum, Derived(3,5));
+
+    EXPECT_EQ(s1(), 9);
+    EXPECT_EQ(s2(), 9);
+    delete b;
+}
+
+TEST(slot, PointerToMemberData)
+{
+    PointerToMemberData pmd(5);
+
+    auto s1 = sig::slot<int()>(&PointerToMemberData::value, &pmd);
+
+    EXPECT_EQ(s1(), 5);
+}
+
+TEST(slot, RefWrap)
+{
+    Base* b = new Derived(3, 5);
+
+    auto s = sig::slot<int()>(&Base::sum, std::ref(*b));
+
+    auto res = s();
+    EXPECT_EQ(res, 9);
+
+    delete b;
+}
+
+TEST(slot, CRefWrap)
+{
+    Base* b = new Derived(3, 5);
+
+    auto s = sig::slot<int()>(&Base::sum, std::cref(*b));
+
+    auto res = s();
+    EXPECT_EQ(res, 9);
+
+    delete b;
+}
+
 TEST(slot, Bind)
 {
     Derived d(3, 5);

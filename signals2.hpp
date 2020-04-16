@@ -31,6 +31,7 @@
   *  @see https://github.com/palacaze/sigslot
   */
 
+#include <functional>
 #include <memory>
 #include <type_traits>
 
@@ -43,7 +44,69 @@ namespace sig
             // Since C++14
             template<class T>
             using decay_t = typename std::decay<T>::type;
-        }
+
+            // Since C++14
+            template< bool B, class T = void >
+            using enable_if_t = typename std::enable_if<B, T>::type;
+
+            // Detect reference wrapper
+            // @see https://stackoverflow.com/questions/40430692/how-to-detect-stdreference-wrapper-in-c-at-compile-time
+            template <class T>
+            struct is_reference_wrapper : std::false_type {};
+            template <class U>
+            struct is_reference_wrapper<std::reference_wrapper<U>> : std::true_type {};
+
+            // Invokes a function object.
+            template<class Func>
+            struct invoker
+            {
+                template<class F, class... Args>
+                static auto call(F&& f, Args&&... args) -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
+                {
+                    return std::forward<F>(f)(std::forward<Args>(args)...);
+                }
+            };
+
+            // Invoke a pointer to member function or pointer to member data.
+            template<class R, class Base>
+            struct invoker<R(Base::*)>
+            {
+                template<class T, class Td = decay_t<T>,
+                    class = enable_if_t<std::is_base_of<Base, Td>::value>>
+                static auto get(T&& t) -> T&&
+                {
+                    return t;
+                }
+
+                template<class T, class Td = decay_t<T>,
+                    class = enable_if_t<is_reference_wrapper<Td>::value>>
+                static auto get(T&& t) -> decltype(t.get())
+                {
+                    return t.get();
+                }
+
+                template<class T, class Td = decay_t<T>,
+                    class = enable_if_t<!std::is_base_of<Base, Td>::value>,
+                    class = enable_if_t<!is_reference_wrapper<Td>::value>>
+                static auto get(T&& t) -> decltype(*std::forward<T>(t))
+                {
+                    return *std::forward<T>(t);
+                }
+
+                template<class T, class... Args, class MT1,
+                    class = std::enable_if<std::is_function<MT1>::value>>
+                static auto call(MT1 Base::*pmf, T&& t, Args&&... args) -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
+                {
+                    return (get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
+                }
+
+                template<class T>
+                static auto call(R(Base::*pmd), T&& t) -> decltype(get(std::forward<T>(t)).*pmd)
+                {
+                    return get(std::forward<T>(t)).*pmd;
+                }
+            };
+        } // namespace traits
 
         // Base class for slot implementations.
         template<typename R, typename... Args>
@@ -71,12 +134,40 @@ namespace sig
                 return new slot_func(*this);
             }
 
-            R operator()(Args&&... args)
+            virtual R operator()(Args&&... args) override
             {
-                return m_Func(std::forward<Args>(args)...);
+                return traits::invoker<Func>::call(m_Func, std::forward<Args>(args)...);
             }
 
         private:
+            traits::decay_t<Func> m_Func;
+        };
+
+        // Slot implementation for pointer to member function and
+        // pointer to member data.
+        template<typename R, typename Func, typename Ptr, typename... Args>
+        class slot_pmf : public slot_impl<R, Args...>
+        {
+        public:
+            slot_pmf(const slot_pmf&) = default;
+
+            slot_pmf(Func&& func, Ptr&& ptr)
+                : m_Ptr{ std::forward<Ptr>(ptr) }
+                , m_Func{ std::forward<Func>(func) }
+            {}
+
+            virtual slot_impl* clone() const override
+            {
+                return new slot_pmf(*this);
+            }
+
+            virtual R operator()(Args&&... args) override
+            {
+                return traits::invoker<Func>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+            }
+
+        private:
+            traits::decay_t<Ptr> m_Ptr;
             traits::decay_t<Func> m_Func;
         };
 
@@ -99,28 +190,34 @@ namespace sig
         // Slot that takes a function object.
         template<typename Func>
         slot(Func&& func)
-        : m_pImpl{new detail::slot_func<R, Func, Args...>(std::forward<Func>(func))}
+            : m_pImpl{ new detail::slot_func<R, Func, Args...>(std::forward<Func>(func)) }
+        {}
+
+        // Slot that takes a pointer to member function.
+        template<typename Func, typename Ptr>
+        slot(Func&& func, Ptr&& ptr)
+            : m_pImpl{ new detail::slot_pmf<R, Func, Ptr, Args...>(std::forward<Func>(func), std::forward<Ptr>(ptr)) }
         {}
 
         // Copy constructor.
         slot(const slot& copy)
-        : m_pImpl{copy->m_pImpl->clone()}
+            : m_pImpl{ copy->m_pImpl->clone() }
         {}
 
         // Explicit parameterized constructor.
         explicit slot(std::unique_ptr<impl> pImpl)
-        : m_pImpl{pImpl}
+            : m_pImpl{ pImpl }
         {}
 
         // Move constructor.
         slot(slot&& other)
-        : m_pImpl{std::move(other.m_pImpl)}
+            : m_pImpl{ std::move(other.m_pImpl) }
         {}
 
         // Assignment operator.
         slot& operator=(const slot& other)
         {
-            if ( &other != this )
+            if (&other != this)
             {
                 m_pImpl.swap(other.m_pImpl->clone());
             }
