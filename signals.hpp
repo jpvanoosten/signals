@@ -58,23 +58,24 @@ namespace sig
 
         } // namespace traits
 
+        // Primary template
         // Invokes a function object.
         // @see https://en.cppreference.com/w/cpp/types/result_of
-        template<class Func>
+        template<class>
         struct invoke_helper
         {
             // Call a function object.
-            template<class F, class... Args>
-            static auto call(F&& f, Args&&... args) -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
+            template<class Func, class... Args>
+            static auto call(Func&& f, Args&&... args) -> decltype(std::forward<Func>(f)(std::forward<Args>(args)...))
             {
-                return std::forward<F>(f)(std::forward<Args>(args)...);
+                return std::forward<Func>(f)(std::forward<Args>(args)...);
             }
         };
 
         // Invoke a pointer to member function or pointer to member data.
         // @see https://en.cppreference.com/w/cpp/types/result_of
-        template<class R, class Base>
-        struct invoke_helper<R(Base::*)>
+        template<class Type, class Base>
+        struct invoke_helper<Type Base::*>
         {
             // Get a reference type.
             template<class T, class Td = traits::decay_t<T>,
@@ -102,9 +103,9 @@ namespace sig
             }
 
             // Call a pointer to a member function.
-            template<class T, class... Args, class MT1,
-            class = traits::enable_if_t<std::is_function<MT1>::value>>
-            static auto call(MT1 Base::* pmf, T&& t, Args&&... args) 
+            template<class T, class... Args, class Type1,
+            class = traits::enable_if_t<std::is_function<Type1>::value>>
+            static auto call(Type1 Base::* pmf, T&& t, Args&&... args)
                 -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
             {
                 return (get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
@@ -112,7 +113,7 @@ namespace sig
 
             // Call a pointer to member data.
             template<class T>
-            static auto call(R(Base::* pmd), T&& t) 
+            static auto call(Type Base::* pmd, T&& t)
                 -> decltype(get(std::forward<T>(t)).*pmd)
             {
                 return get(std::forward<T>(t)).*pmd;
