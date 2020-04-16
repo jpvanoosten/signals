@@ -31,9 +31,10 @@
   *  @see https://github.com/palacaze/sigslot
   */
 
-#include <functional>
-#include <memory>
-#include <type_traits>
+#include <functional>   // for std::reference_wrapper
+#include <memory>       // for std::unique_ptr
+#include <type_traits>  // for std::decay, and std::enable_if
+#include <utility>      // for std::declval.
 
 namespace sig
 {
@@ -56,7 +57,51 @@ namespace sig
             template <class U>
             struct is_reference_wrapper<std::reference_wrapper<U>> : std::true_type {};
 
+            // Test for equality comparable
+            // @see C++ Templates: The Complete Guide (David Vandevoorde, et. al., 2018)
+            template<class T>
+            struct is_equality_compareable
+            {
+            private:
+                // Test convertibility of == and !(==) to bool:
+                static void* conv(bool);
+
+                template<class U>
+                static std::true_type test(
+                    decltype(conv(std::declval<const U&>() == std::declval<const U&>())),
+                    decltype(conv(!(std::declval<const U&>() == std::declval<const U&>())))
+                );
+
+                // Fallback
+                template<class U>
+                static std::false_type test(...);
+
+            public:
+                static constexpr bool value = decltype(test<T>(nullptr, nullptr))::value;
+            };
+
         } // namespace traits
+
+        // Use is_equality_compareable to try to perform the equality check
+        // (if it is valid for the given type).
+        template<class T, bool = traits::is_equality_compareable<T>::value>
+        struct try_equals
+        {
+            static bool equals(const T& t1, const T& t2)
+            {
+                return t1 == t2;
+            }
+        };
+
+        // Partial specialization if type is not equality comparable.
+        template<class T>
+        struct try_equals<T, false>
+        {
+            static bool equals(const T&, const T&)
+            {
+                return false;
+            }
+        };
 
         // Primary template
         // Invokes a function object.
@@ -125,9 +170,10 @@ namespace sig
         class slot_impl
         {
         public:
-            virtual R operator()(Args&&... args) = 0;
-            virtual slot_impl* clone() const = 0;
             virtual ~slot_impl() = default;
+            virtual slot_impl* clone() const = 0;
+            virtual bool equals(const slot_impl* s) const = 0;
+            virtual R operator()(Args&&... args) = 0;
         };
 
         // Slot implementation for callable function objects (Functors)
@@ -135,6 +181,8 @@ namespace sig
         class slot_func : public slot_impl<R, Args...>
         {
         public:
+            using fuction_type = traits::decay_t<Func>;
+            
             slot_func(const slot_func&) = default;  // Copy constructor.
 
             slot_func(Func&& func)
@@ -146,13 +194,23 @@ namespace sig
                 return new slot_func(*this);
             }
 
+            virtual bool equals(const slot_impl<R, Args...>* s) const override
+            {
+                if (auto sfunc = dynamic_cast<const slot_func*>(s))
+                {
+                    return try_equals<fuction_type>::equals(m_Func, sfunc->m_Func);
+                }
+
+                return false;
+            }
+
             virtual R operator()(Args&&... args) override
             {
-                return invoke_helper<Func>::call(m_Func, std::forward<Args>(args)...);
+                return invoke_helper<fuction_type>::call(m_Func, std::forward<Args>(args)...);
             }
 
         private:
-            traits::decay_t<Func> m_Func;
+            fuction_type m_Func;
         };
 
         // Slot implementation for pointer to member function and
@@ -161,6 +219,9 @@ namespace sig
         class slot_pmf : public slot_impl<R, Args...>
         {
         public:
+            using function_type = traits::decay_t<Func>;
+            using pointer_type = traits::decay_t<Ptr>;
+
             slot_pmf(const slot_pmf&) = default;
 
             slot_pmf(Func&& func, Ptr&& ptr)
@@ -173,14 +234,25 @@ namespace sig
                 return new slot_pmf(*this);
             }
 
+            virtual bool equals(const slot_impl<R, Args...>* s) const override
+            {
+                if (auto spmf = dynamic_cast<const slot_pmf*>(s))
+                {
+                    return try_equals<pointer_type>::equals(m_Ptr, spmf->m_Ptr) &&
+                           try_equals<function_type>::equals(m_Func, spmf->m_Func);
+                }
+
+                return false;
+            }
+
             virtual R operator()(Args&&... args) override
             {
-                return invoke_helper<Func>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+                return invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
             }
 
         private:
-            traits::decay_t<Ptr> m_Ptr;
-            traits::decay_t<Func> m_Func;
+            pointer_type m_Ptr;
+            function_type m_Func;
         };
 
     } // namespace detail
@@ -205,7 +277,7 @@ namespace sig
             : m_pImpl{ new detail::slot_func<R, Func, Args...>(std::forward<Func>(func)) }
         {}
 
-        // Slot that takes a pointer to member function.
+        // Slot that takes a pointer to member function or pointer to member data.
         template<typename Func, typename Ptr>
         slot(Func&& func, Ptr&& ptr)
             : m_pImpl{ new detail::slot_pmf<R, Func, Ptr, Args...>(std::forward<Func>(func), std::forward<Ptr>(ptr)) }
@@ -243,7 +315,31 @@ namespace sig
             return *this;
         }
 
-        R operator()(Args&&... args)                // Invoke the signal.
+        // Explicit conversion to bool.
+        explicit operator bool() const
+        {
+            return m_pImpl != nullptr;
+        }
+
+        // Equality operator
+        friend bool operator==(const slot& s1, const slot& s2)
+        {
+            if (!s1 || !s2)
+            {
+                return !s1 && !s2;
+            }
+
+            return s1.m_pImpl->equals(s2.m_pImpl.get());
+        }
+
+        // Inequality operator
+        friend bool operator!=(const slot& s1, const slot& s2)
+        {
+            return !(s1 == s2);
+        }
+
+        // Invoke the signal.
+        R operator()(Args&&... args)
         {
             return (*m_pImpl)(std::forward<Args>(args)...);
         }

@@ -95,7 +95,7 @@ TEST(slot, VoidFunc)
     s3();
 }
 
-TEST(slot, Int)
+TEST(slot, IntFunc)
 {
     using s = sig::slot<int(int, int)>;
 
@@ -149,7 +149,7 @@ TEST(slot, PartialBindLambda)
 }
 
 
-TEST(slot, Virtual)
+TEST(slot, VirtualFunc)
 {
     Base* b = new Derived(3, 5);
 
@@ -192,6 +192,31 @@ TEST(slot, CRefWrap)
     EXPECT_EQ(res, 9);
 
     delete b;
+}
+
+TEST(slot, SharedPtr)
+{
+    auto p = std::make_shared<Derived>(3, 5);
+
+    auto s = sig::slot<int()>(&Base::sum, p);
+
+    auto res = s();
+    EXPECT_EQ(res, 9);
+}
+
+TEST(slot, NullSlot)
+{
+    // Construct an empty slot.
+    auto s = sig::slot<void()>();
+
+    // Should evaluate to false.
+    EXPECT_FALSE(s);
+
+    // Provide a valid slot.
+    s = sig::slot<void()>(&void_func);
+
+    // Should evaluate to false.
+    EXPECT_TRUE(s);
 }
 
 TEST(slot, Bind)
