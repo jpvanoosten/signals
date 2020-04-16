@@ -31,6 +31,7 @@
   *  @see https://github.com/palacaze/sigslot
   */
 
+#include <exception>    // for std::exception
 #include <functional>   // for std::reference_wrapper
 #include <memory>       // for std::unique_ptr
 #include <type_traits>  // for std::decay, and std::enable_if
@@ -38,6 +39,11 @@
 
 namespace sig
 {
+    // An exception of type not_comparable_exception is thrown
+    // if one tries to compare non comparable types (like lambdas).
+    class not_comparable_exception : public std::exception
+    {};
+
     namespace detail
     {
         namespace traits
@@ -60,7 +66,7 @@ namespace sig
             // Test for equality comparable
             // @see C++ Templates: The Complete Guide (David Vandevoorde, et. al., 2018)
             template<class T>
-            struct is_equality_compareable
+            struct is_equality_comparable
             {
             private:
                 // Test convertibility of == and !(==) to bool:
@@ -84,7 +90,7 @@ namespace sig
 
         // Use is_equality_compareable to try to perform the equality check
         // (if it is valid for the given type).
-        template<class T, bool = traits::is_equality_compareable<T>::value>
+        template<class T, bool = traits::is_equality_comparable<T>::value>
         struct try_equals
         {
             static bool equals(const T& t1, const T& t2)
@@ -94,12 +100,14 @@ namespace sig
         };
 
         // Partial specialization if type is not equality comparable.
+        // In this case, instead of returning false, throw an exception 
+        // to indicate that the type is not equality comparable.
         template<class T>
         struct try_equals<T, false>
         {
             static bool equals(const T&, const T&)
             {
-                return false;
+                throw sig::not_comparable_exception();
             }
         };
 
@@ -189,7 +197,7 @@ namespace sig
                 : m_Func{ std::forward<Func>(func) }
             {}
 
-            virtual slot_impl* clone() const override
+            virtual slot_impl<R, Args...>* clone() const override
             {
                 return new slot_func(*this);
             }
@@ -229,7 +237,7 @@ namespace sig
                 , m_Func{ std::forward<Func>(func) }
             {}
 
-            virtual slot_impl* clone() const override
+            virtual slot_impl<R, Args...>* clone() const override
             {
                 return new slot_pmf(*this);
             }

@@ -93,6 +93,13 @@ TEST(slot, VoidFunc)
     s1();
     s2();
     s3();
+
+    // Slots pointing to the same function should be equal.
+    EXPECT_TRUE(s1 == s2);
+
+    // Slots pointing to different functions should not be equal.
+    EXPECT_TRUE(s1 != s3);
+    EXPECT_TRUE(s2 != s3);
 }
 
 TEST(slot, IntFunc)
@@ -100,17 +107,28 @@ TEST(slot, IntFunc)
     using s = sig::slot<int(int, int)>;
 
     auto s1 = s(&sum);
+    auto s2 = s(&sum);
+
     auto res = s1(3, 5);
 
     EXPECT_EQ(res, 8);
+
+    // Slots pointing to the same function should be equal.
+    EXPECT_TRUE(s1 == s2);
 }
 
 TEST(slot, Functor)
 {
     auto s1 = sig::slot<int()>(Functor(3,5));
+    auto s2 = sig::slot<int()>(Functor(3,5));
 
     auto res = s1();
     EXPECT_EQ(res, 8);
+
+    // The Functor class does not define an equality operator.
+    // Attempting to compare two slots with Functor should throw
+    // an exception.
+    EXPECT_THROW(s1 == s2, sig::not_comparable_exception);
 }
 
 TEST(slot, Lambda)
@@ -122,6 +140,9 @@ TEST(slot, Lambda)
 
     auto res = s1(3, 5);
     EXPECT_EQ(res, 8);
+
+    // Two slots pointing to the same lambda should be true?
+    EXPECT_TRUE( s1 == s2 );
 }
 
 TEST(slot, BindLambda)
@@ -207,16 +228,26 @@ TEST(slot, SharedPtr)
 TEST(slot, NullSlot)
 {
     // Construct an empty slot.
-    auto s = sig::slot<void()>();
+    auto s1 = sig::slot<void()>();
+    auto s2 = sig::slot<void()>();
 
     // Should evaluate to false.
-    EXPECT_FALSE(s);
+    EXPECT_FALSE(s1);
+    EXPECT_FALSE(s2);
+
+    // Null slots should be equality comparable.
+    EXPECT_TRUE(s1 == s2);
 
     // Provide a valid slot.
-    s = sig::slot<void()>(&void_func);
+    s1 = sig::slot<void()>(&void_func);
+    s2 = sig::slot<void()>(&void_func);
 
-    // Should evaluate to false.
-    EXPECT_TRUE(s);
+    // Should evaluate to true now.
+    EXPECT_TRUE(s1);
+    EXPECT_TRUE(s2);
+
+    // Slots pointing to the same function should be equal.
+    EXPECT_TRUE(s1 == s2);
 }
 
 TEST(slot, Bind)
