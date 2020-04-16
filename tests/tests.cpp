@@ -1,4 +1,4 @@
-#include <signals2.hpp>
+#include <signals.hpp>
 #include <gtest/gtest.h>
 
 #include <iostream>
@@ -73,9 +73,8 @@ public:
     }
 };
 
-class PointerToMemberData
+struct PointerToMemberData
 {
-public:
     PointerToMemberData(int v)
     : value(v)
     {}

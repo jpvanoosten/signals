@@ -31,8 +31,6 @@
   *  @see https://github.com/palacaze/sigslot
   */
 
-#include <cstddef>
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <type_traits>
@@ -43,757 +41,204 @@ namespace sig
     {
         namespace traits
         {
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/enable_if
-            template<bool B, class T = void>
-            using enable_if_t = typename std::enable_if<B, T>::type;
-
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/decay
+            // Since C++14
             template<class T>
             using decay_t = typename std::decay<T>::type;
 
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/conditional
-            template<bool B, class T, class F>
-            using conditional_t = typename std::conditional<B, T, F>::type;
+            // Since C++14
+            template< bool B, class T = void >
+            using enable_if_t = typename std::enable_if<B, T>::type;
 
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/remove_cv
-            template< class T >
-            using remove_cv_t = typename std::remove_cv<T>::type;
+            // Detect reference wrapper
+            // @see https://stackoverflow.com/questions/40430692/how-to-detect-stdreference-wrapper-in-c-at-compile-time
+            template <class T>
+            struct is_reference_wrapper : std::false_type {};
+            template <class U>
+            struct is_reference_wrapper<std::reference_wrapper<U>> : std::true_type {};
 
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/remove_cv
-            template< class T >
-            using remove_const_t = typename std::remove_const<T>::type;
-
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/remove_cv
-            template< class T >
-            using remove_volatile_t = typename std::remove_volatile<T>::type;
-
-            // since C++14
-            // @see https://en.cppreference.com/w/cpp/types/remove_reference
-            template< class T >
-            using remove_reference_t = typename std::remove_reference<T>::type;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/integral_constant
-            template <bool B>
-            using bool_constant = std::integral_constant<bool, B>;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_base_of
-            template<class Base, class Derived>
-            constexpr bool is_base_of_v = std::is_base_of<Base, Derived>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_member_function_pointer
-            template< class T >
-            constexpr bool is_member_function_pointer_v = std::is_member_function_pointer<T>::value;
-
-            // since C++17
-            // @see 
-            template< class T >
-            constexpr bool is_member_object_pointer_v = std::is_member_object_pointer<T>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_function
-            template<class T>
-            constexpr bool is_function_v = std::is_function<T>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/void_t
-            template< class... >
-            struct make_void
+            // Invokes a function object.
+            template<class Func>
+            struct invoker
             {
-                typedef void type;
+                template<class F, class... Args>
+                static auto call(F&& f, Args&&... args) -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
+                {
+                    return std::forward<F>(f)(std::forward<Args>(args)...);
+                }
             };
 
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/void_t
-            template<class... T>
-            using void_t = typename make_void<T...>::type;
-
-            // since C++17
-            template< class T >
-            constexpr bool is_void_v = std::is_void<T>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/conjunction
-            template<class...> struct conjunction : std::true_type {};
-            template<class B1> struct conjunction<B1> : B1 { };
-            template<class B1, class... Bn>
-            struct conjunction<B1, Bn...> : conditional_t<bool(B1::value), conjunction<Bn...>, B1> {};
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/conjunction
-            template<class... B>
-            constexpr bool conjunction_v = conjunction<B...>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/disjunction
-            template<class...> struct disjunction : std::false_type {};
-            template<class B1> struct disjunction<B1> : B1 {};
-            template<class B1, class... Bn>
-            struct disjunction<B1, Bn...> : conditional_t<bool(B1::value), B1, disjunction<Bn...>> {};
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/disjunction
-            template<class... B>
-            constexpr bool disjunction_v = disjunction<B...>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_convertible
-            template< class From, class To >
-            constexpr bool is_convertible_v = std::is_convertible<From, To>::value;
-
-            template<class To>
-            void implicitly_convert_to(To) noexcept; // not defined
-
-            // since C++20
-            // @see https://en.cppreference.com/w/cpp/types/is_convertible
-            template <class From, class To, bool = is_convertible_v<From, To>, bool = is_void_v<To>>
-            constexpr bool is_nothrow_convertible_v = noexcept(implicitly_convert_to<To>(std::declval<From>()));
-
-            template <class From, class To, bool IsVoid>
-            constexpr bool is_nothrow_convertible_v<From, To, false, IsVoid> = false;
-
-            template <class From, class To>
-            constexpr bool is_nothrow_convertible_v<From, To, true, true> = true;
-
-            // since C++20
-            // @see https://en.cppreference.com/w/cpp/types/is_convertible
-            template <class From, class To>
-            struct is_nothrow_convertible : bool_constant<is_nothrow_convertible_v<From, To>>
-            {};
-
-            // since C++20
-            // @see https://en.cppreference.com/w/cpp/types/remove_cvref
-            template<class T>
-            struct remove_cvref {
-                typedef remove_cv_t<remove_reference_t<T>> type;
-            };
-
-            // since C++20
-            // @see https://en.cppreference.com/w/cpp/types/remove_cvref
-            template<class T>
-            using remove_cvref_t = typename remove_cvref<T>::type;
-
-            // Detect valid weak_ptr types.
-            // @see https://www.fluentcpp.com/2017/06/02/write-template-metaprogramming-expressively/
-            template<class T, class = void_t<>>
-            struct is_weak_ptr : std::false_type
-            {};
-
-            template<class T>
-            struct is_weak_ptr< T, void_t<
-                decltype(std::declval<T>().expired()),
-                decltype(std::declval<T>().lock()),
-                decltype(std::declval<T>().reset()) > >
-                : std::true_type
-            {};
-
-            template<class T>
-            constexpr bool is_weak_ptr_v = is_weak_ptr<T>::value;
-
-            // Detect reference wrappers.
-            // @see https://en.cppreference.com/w/cpp/utility/functional/reference_wrapper
-            template<class T, class = void_t<> >
-            struct is_reference_wrapper : std::false_type
-            {};
-
-            template<class T>
-            struct is_reference_wrapper<std::reference_wrapper<T>> : std::true_type
-            {};
-
-            template<class T>
-            constexpr bool is_reference_wrapper_v = is_reference_wrapper<T>::value;
-
-            // Detect nullptr types.
-            // since C++14
-            // @see: https://en.cppreference.com/w/cpp/types/is_null_pointer
-            template<class T>
-            struct is_null_pointer : std::is_same<std::nullptr_t, typename std::remove_cv<T>::type>
-            {};
-
-            // since C++17
-            template<class T>
-            constexpr bool is_null_pointer_v = is_null_pointer<T>::value;
-
-            // Detect member function traits.
-            // @see https://stackoverflow.com/questions/28105077/how-can-i-get-the-class-of-a-member-function-pointer
-            template<class>
-            struct member_function_traits;
-
-            template<class R, class T, class... Args>
-            struct member_function_traits<R(T::*)(Args...)>
+            // Invoke a pointer to member function or pointer to member data.
+            template<class R, class Base>
+            struct invoker<R(Base::*)>
             {
-                using return_type = R;
-                using class_type = T;
-                using reference_type = T&;
+                template<class T, class Td = decay_t<T>,
+                    class = enable_if_t<std::is_base_of<Base, Td>::value>>
+                static auto get(T&& t) -> T&&
+                {
+                    return t;
+                }
+
+                template<class T, class Td = decay_t<T>,
+                    class = enable_if_t<is_reference_wrapper<Td>::value>>
+                static auto get(T&& t) -> decltype(t.get())
+                {
+                    return t.get();
+                }
+
+                template<class T, class Td = decay_t<T>,
+                    class = enable_if_t<!std::is_base_of<Base, Td>::value>,
+                    class = enable_if_t<!is_reference_wrapper<Td>::value>>
+                static auto get(T&& t) -> decltype(*std::forward<T>(t))
+                {
+                    return *std::forward<T>(t);
+                }
+
+                template<class T, class... Args, class MT1,
+                    class = std::enable_if<std::is_function<MT1>::value>>
+                static auto call(MT1 Base::*pmf, T&& t, Args&&... args) -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
+                {
+                    return (get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
+                }
+
+                template<class T>
+                static auto call(R(Base::*pmd), T&& t) -> decltype(get(std::forward<T>(t)).*pmd)
+                {
+                    return get(std::forward<T>(t)).*pmd;
+                }
             };
-
-            template<class R, class T, class... Args>
-            struct member_function_traits<R(T::*)(Args...) const>
-            {
-                using return_type = R;
-                using class_type = T;
-                using reference_type = const T&;
-            };
-
-            // Detect template specialization.
-            // @see https://stackoverflow.com/questions/16337610/how-to-know-if-a-type-is-a-specialization-of-stdvector
-            template<class Type, template<class...> class Template>
-            struct is_specialization : std::false_type
-            {};
-
-            template<template<class...> class Template, typename... Types>
-            struct is_specialization<Template<Types...>, Template> : std::true_type
-            {};
-
-            template<class Type, template<class...> class Template>
-            constexpr bool is_specialization_v = is_specialization<Type, Template>::value;
-
         } // namespace traits
 
-        /**
-         * Invoke a pointer to a member function of an object.
-         */
-        struct invoke_pmf_object
+        // Base class for slot implementations.
+        template<typename R, typename... Args>
+        class slot_impl
         {
-            template<class F, class T, class... Args>
-            static constexpr auto call(F pmf, T&& t, Args&&... args)
-                noexcept(noexcept((std::forward<T>(t).*pmf)(std::forward<Args>(args)...)))
-                -> decltype((std::forward<T>(t).*pmf)(std::forward<Args>(args)...))
-            {
-                return (std::forward<T>(t).*pmf)(std::forward<Args>(args)...);
-            }
+        public:
+            virtual R operator()(Args&&... args) = 0;
+            virtual slot_impl* clone() const = 0;
+            virtual ~slot_impl() = default;
         };
 
-        /**
-         * Invoke a pointer to a member function on a std::reference_wrapper
-         */
-        struct invoke_pmf_refwrap
+        // Slot implementation for callable function objects (Functors)
+        template<typename R, typename Func, typename... Args>
+        class slot_func : public slot_impl<R, Args...>
         {
-            template<class F, class T, class... Args>
-            static constexpr auto call(F pmf, T&& t, Args&&... args)
-                noexcept(noexcept((std::forward<T>(t).get().*pmf)(std::forward<Args>(args)...)))
-                -> decltype((std::forward<T>(t).get().*pmf)(std::forward<Args>(args)...))
+        public:
+            slot_func(const slot_func&) = default;  // Copy constructor.
+
+            slot_func(Func&& func)
+                : m_Func{ std::forward<Func>(func) }
+            {}
+
+            virtual slot_impl* clone() const override
             {
-                return (std::forward<T>(t).get().*pmf)(std::forward<Args>(args)...);
+                return new slot_func(*this);
             }
+
+            virtual R operator()(Args&&... args) override
+            {
+                return traits::invoker<Func>::call(m_Func, std::forward<Args>(args)...);
+            }
+
+        private:
+            traits::decay_t<Func> m_Func;
         };
 
-        /**
-         * Invoke a pointer to member function on a (smart) pointer.
-         */
-        struct invoke_pmf_pointer
+        // Slot implementation for pointer to member function and
+        // pointer to member data.
+        template<typename R, typename Func, typename Ptr, typename... Args>
+        class slot_pmf : public slot_impl<R, Args...>
         {
-            template<class F, class T, class... Args>
-            static constexpr auto call(F pmf, T&& t, Args&&... args)
-                noexcept(noexcept(((*std::forward<T>(t)).*pmf)(std::forward<Args>(args)...)))
-                -> decltype(((*std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
+        public:
+            slot_pmf(const slot_pmf&) = default;
+
+            slot_pmf(Func&& func, Ptr&& ptr)
+                : m_Ptr{ std::forward<Ptr>(ptr) }
+                , m_Func{ std::forward<Func>(func) }
+            {}
+
+            virtual slot_impl* clone() const override
             {
-                return ((*std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
+                return new slot_pmf(*this);
             }
-        };
 
-        /**
-         * Invoke a pointer to a member data on an object.
-         */
-        struct invoke_pmd_object
-        {
-            template<class D, class T>
-            static constexpr auto call(D pmd, T&& t)
-                noexcept(noexcept(std::forward<T>(t).*pmd))
-                -> decltype(std::forward<T>(t).*pmd)
+            virtual R operator()(Args&&... args) override
             {
-                return std::forward<T>(t).*pmd;
+                return traits::invoker<Func>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
             }
+
+        private:
+            traits::decay_t<Ptr> m_Ptr;
+            traits::decay_t<Func> m_Func;
         };
-
-        /**
-         * Invoke a pointer to member data on a reference wrapper.
-         */
-        struct invoke_pmd_refwrap
-        {
-            template<class D, class T>
-            static constexpr auto call(D pmd, T&& t)
-                noexcept(noexcept(std::forward<T>(t).get().*pmd))
-                -> decltype(std::forward<T>(t).get().*pmd)
-            {
-                return std::forward<T>(t).get().*pmd;
-            }
-        };
-
-        /**
-         * Invoke a pointer to member data on a (smart) pointer.
-         */
-        struct invoke_pmd_pointer
-        {
-            template<class D, class T>
-            static constexpr auto call(D pmd, T&& t)
-                noexcept(noexcept((*std::forward<T>(t)).*pmd))
-                -> decltype((*std::forward<T>(t)).*pmd)
-            {
-                return (*std::forward<T>(t)).*pmd;
-            }
-        };
-
-        /**
-         * Invoke a function object.
-         */
-        struct invoke_functor
-        {
-            template<class F, class... Args>
-            static constexpr auto call(F&& f, Args&&... args)
-                noexcept(noexcept(std::forward<F>(f)(std::forward<Args>(args)...)))
-                -> decltype(std::forward<F>(f)(std::forward<Args>(args)...))
-            {
-                return std::forward<F>(f)(std::forward<Args>(args)...);
-            }
-        };
-
-        // Primary template
-        template<class F, class T, class Fd = traits::remove_cvref_t<F>,
-            bool is_pmf = traits::is_member_function_pointer_v<Fd>,
-            bool is_pmd = traits::is_member_object_pointer_v<Fd>>
-            struct invoker_helper;
-
-        // Specialization for pointer to member function.
-        template<class F, class T, class Fd>
-        struct invoker_helper<F, T, Fd, true, false>
-            : traits::conditional_t< traits::is_base_of_v< typename traits::member_function_traits<Fd>::class_type, traits::remove_reference_t<T>>,
-            invoke_pmf_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper>,
-            invoke_pmf_refwrap, invoke_pmf_pointer>>
-        {};
-
-        // Specialization for pointer to member data.
-        template<class F, class T, class Fd>
-        struct invoker_helper<F, T, Fd, false, true>
-            : traits::conditional_t< traits::is_base_of_v< typename traits::member_function_traits<Fd>::class_type, traits::remove_reference_t<T>>,
-            invoke_pmd_object, traits::conditional_t< traits::is_specialization_v< traits::remove_cvref_t<T>, std::reference_wrapper >,
-            invoke_pmd_refwrap, invoke_pmd_pointer>>
-        {};
-
-        // Specialization for function objects.
-        template<class F, class T, class Fd>
-        struct invoker_helper<F, T, Fd, false, false> : invoke_functor
-        {};
-
-        // Primary template
-        template<class F, class... Args>
-        struct invoker;
-
-        // Specialization for 0 arguments.
-        template<class F>
-        struct invoker<F> : invoke_functor
-        {};
-
-        // Specialization for 1 or more arguments.
-        template<class F, class T, class... Args>
-        struct invoker<F, T, Args...> : invoker_helper<F, T>
-        {};
-
-        // since C++17
-        // @see https://en.cppreference.com/w/cpp/utility/functional/invoke
-        template<class F, class... Args>
-        constexpr auto invoke(F&& f, Args&&... args)
-            noexcept(noexcept(invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...)))
-            -> decltype(invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...))
-        {
-            return invoker<F, Args...>::call(std::forward<F>(f), std::forward<Args>(args)...);
-        }
-
-        namespace traits
-        {
-            // Invoke traits when Callable isn't callable with Args
-            template<class Void, class... Args>
-            struct invoke_traits
-            {
-                using is_invocable = std::false_type;
-                using is_nothrow_invocable = std::false_type;
-                template<class R>
-                using is_invocable_r = std::false_type;
-                template<class R>
-                using is_nothrow_invocable_r = std::false_type;
-            };
-
-            // Invoke traits when Callable is callable with Args
-            template<class... Args>
-            struct invoke_traits<void_t<decltype(sig::detail::invoke(std::declval<Args>()...))>, Args...>
-            {
-                using type = decltype(sig::detail::invoke(std::declval<Args>()...));
-                using is_invocable = std::true_type;
-                using is_nothrow_invocable = bool_constant<noexcept(sig::detail::invoke(std::declval<Args>()...))>;
-                template<class R>
-                using is_invocable_r = bool_constant<disjunction_v<std::is_void<R>, std::is_convertible<type, R>>>;
-                template<class R>
-                using is_nothrow_invocable_r = bool_constant<conjunction_v<is_nothrow_invocable, disjunction<std::is_void<R>, is_nothrow_convertible<type, R>>>>;
-            };
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template<class F, class... Args>
-            struct is_invocable : invoke_traits<void, F, Args...>::is_invocable
-            {};
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template<class F, class... Args>
-            constexpr bool is_invocable_v = is_invocable<F, Args...>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template<class F, class... Args>
-            struct is_nothrow_invocable : invoke_traits<void, F, Args...>::is_nothrow_invocable
-            {};
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template<class F, class... Args>
-            constexpr bool is_nothrow_invocable_v = is_nothrow_invocable<F, Args...>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template <class R, class F, class... Args>
-            struct is_invocable_r : invoke_traits<R, F, Args...>::is_invocable_r
-            {};
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template <class R, class F, class... Args>
-            constexpr bool is_invocable_r_v = is_invocable_r<R, F, Args...>::value;
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template <class R, class F, class... Args>
-            struct is_nothrow_invocable_r : invoke_traits<void, F, Args...>::template is_nothrow_invocable_r<R>
-            {};
-
-            // since C++17
-            // @see https://en.cppreference.com/w/cpp/types/is_invocable
-            template<class R, class F, class... Args>
-            constexpr bool is_nothrow_invocable_r_v = is_nothrow_invocable_r<R, F, Args...>::value;
-
-        } // namespace traits
-
-        template<class F, class... Args>
-        struct invoke_result : traits::invoke_traits<void, F, Args...>
-        {};
-
-        template<class F, class... Args>
-        using invoke_result_t = typename traits::invoke_traits<void, F, Args...>::type;
 
     } // namespace detail
 
-    /*
-     * A slot object holds state information, and a callable to to be called
-     * whenever the function call operator is called.
-     */
-    template <class Func, class Ptr = std::nullptr_t>
-    class slot
+    // Primary template
+    template<typename Func>
+    class slot;
+
+    // Specialization for function objects.
+    template<typename R, typename... Args>
+    class slot<R(Args...)>
     {
     public:
+        using impl = detail::slot_impl<R, Args...>;
 
-        using func_type = detail::traits::decay_t<Func>;
-        using ptr_type = detail::traits::decay_t<Ptr>;
+        // Default constructor.
+        constexpr slot() noexcept = default;
 
-        constexpr slot(Func&& f) noexcept
-            : m_func{ std::forward<Func>(f) }
-            , m_ptr{ nullptr }
-            , m_index(0)
-            , m_connected(true)
-            , m_blocked(false)
+        // Slot that takes a function object.
+        template<typename Func>
+        slot(Func&& func)
+            : m_pImpl{ new detail::slot_func<R, Func, Args...>(std::forward<Func>(func)) }
         {}
 
-        constexpr slot(Func&& f, Ptr&& p) noexcept
-            : m_func{ std::forward<Func>(f) }
-            , m_ptr{ std::forward<Ptr>(p) }
-            , m_index(0)
-            , m_connected(true)
-            , m_blocked(false)
+        // Slot that takes a pointer to member function.
+        template<typename Func, typename Ptr>
+        slot(Func&& func, Ptr&& ptr)
+            : m_pImpl{ new detail::slot_pmf<R, Func, Ptr, Args...>(std::forward<Func>(func), std::forward<Ptr>(ptr)) }
         {}
 
-        // Note: The copy constructor is deleted for atomic types.
-        constexpr slot(const slot& s) noexcept
-            : m_func(s.m_func)
-            , m_ptr(s.m_ptr)
-            , m_index(s.m_index)
-            , m_connected(s.m_connected)
-            , m_blocked(s.m_blocked)
+        // Copy constructor.
+        slot(const slot& copy)
+            : m_pImpl{ copy->m_pImpl->clone() }
         {}
 
-        constexpr slot(slot&& s) noexcept
-            : m_func(std::move(s.m_func))
-            , m_ptr(std::move(s.m_ptr))
-            , m_index(s.m_index)
-            , m_connected(s.m_connected)
-            , m_blocked(s.m_blocked)
+        // Explicit parameterized constructor.
+        explicit slot(std::unique_ptr<impl> pImpl)
+            : m_pImpl{ pImpl }
         {}
 
-        slot& operator=(const slot& s) noexcept
+        // Move constructor.
+        slot(slot&& other)
+            : m_pImpl{ std::move(other.m_pImpl) }
+        {}
+
+        // Assignment operator.
+        slot& operator=(const slot& other)
         {
-            m_func = s.m_func;
-            m_ptr = s.m_ptr;
-            m_index = s.m_index;
-            m_connected = s.m_connected;
-            m_blocked = s.m_blocked;
-
+            if (&other != this)
+            {
+                m_pImpl.swap(other.m_pImpl->clone());
+            }
             return *this;
         }
 
-        slot& operator=(slot&& s) noexcept
+        // Move assignment operator.
+        slot& operator=(slot&& other)
         {
-            m_func = s.m_func;
-            m_ptr = s.m_ptr;
-            m_index = s.m_index;
-            m_connected = s.m_connected;
-            m_blocked = s.m_blocked;
-
+            m_pImpl = std::move(other.m_pImpl);
             return *this;
         }
 
-        // TODO: Figure this out.
-        template<class F, class P>
-        bool operator==(const slot<F, P>& s) const noexcept
+        R operator()(Args&&... args)                // Invoke the signal.
         {
-            return reinterpret_cast<void*>(m_func) == reinterpret_cast<void*>(s.m_func) &&
-                   reinterpret_cast<void*>(m_ptr) == reinterpret_cast<void*>(s.m_ptr);
-        }
-
-        template<class F, class P>
-        bool operator!=(const slot<F, P>& s) const noexcept
-        {
-            return !(*this == s);
-        }
-
-        bool connected() const noexcept
-        {
-            return m_connected;
-        }
-
-        bool disconnect() noexcept
-        {
-            bool ret = m_connected.exchange(false);
-            if (ret)
-            {
-                // Do something if it was previously connected.
-            }
-            return ret;
-        }
-
-        bool blocked() const noexcept
-        {
-            return m_blocked;
-        }
-
-        void block() noexcept
-        {
-            m_blocked = true;
-        }
-
-        void unblock() noexcept
-        {
-            m_blocked = false;
-        }
-
-        template <class... Args>
-        constexpr decltype(auto) operator()(Args&&... args)
-            noexcept(
-                noexcept(detail::traits::conditional_t<
-                    detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<Ptr>>,
-                    detail::traits::is_nothrow_invocable<Func, Args...>,
-                    detail::traits::is_nothrow_invocable<Func, Ptr, Args...>>::value))
-        {
-            return do_invoke(m_func, m_ptr, std::forward<Args>(args)...);
+            return (*m_pImpl)(std::forward<Args>(args)...);
         }
 
     private:
-        template<class F, class P, class... Args>
-        constexpr detail::traits::enable_if_t<detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, Args...>>
-            do_invoke(F&& f, P&&, Args&&... args) noexcept(detail::traits::is_nothrow_invocable_v<F, Args...>)
-        {
-            return detail::invoke(std::forward<F>(f), std::forward<Args>(args)...);
-        }
-
-        template<class F, class P, class... Args>
-        constexpr detail::traits::enable_if_t<!detail::traits::is_null_pointer_v<detail::traits::remove_reference_t<P>>, detail::invoke_result_t<F, P, Args...>>
-            do_invoke(F&& f, P&& p, Args&&... args) noexcept(detail::traits::is_nothrow_invocable_v<F, P, Args...>)
-        {
-            return detail::invoke(std::forward<F>(f), std::forward<P>(p), std::forward<Args>(args)...);
-        }
-
-        std::size_t& index()
-        {
-            return index;
-        }
-
-        func_type m_func;
-        ptr_type m_ptr;
-
-        // Index of the slot in the signal.
-        std::size_t m_index;
-        // Is the slot currently connected to the signal?
-        std::atomic_bool m_connected;
-        // Is the slot blocked?
-        std::atomic_bool m_blocked;
+        std::unique_ptr<impl> m_pImpl;              // Pointer to implementation
     };
 
-    template <class Func>
-    slot<Func, std::nullptr_t> make_slot(Func&& f)
-    {
-        return slot<Func, std::nullptr_t>(std::forward<Func>(f));
-    }
-
-    template <class Func, class Ptr>
-    slot<Func, Ptr> make_slot(Func&& f, Ptr&& p)
-    {
-        return slot<Func, Ptr>(std::forward<Func>(f), std::forward<Ptr>(p));
-    }
-
-    /**
-     * A connection object tracks a slot that is connected to a signal.
-     */
-    template<class Func, class Ptr>
-    class connection
-    {
-    public:
-        using weak_slot = std::weak_ptr<slot<Func, Ptr>>;
-
-        connection() = default;
-        virtual ~connection() = default;
-
-        connection(const connection&) noexcept = default;
-        connection(connection&&) noexcept = default;
-        connection& operator=(const connection&) noexcept = default;
-        connection& operator=(connection&&) noexcept = default;
-
-        bool valid() const noexcept
-        {
-            return !m_slot.expired();
-        }
-
-        bool connected() const noexcept
-        {
-            const auto s = m_slot.lock();
-            return s && s->connected();
-        }
-
-        bool disconnect() noexcept
-        {
-            auto s = m_slot.lock();
-            return s && s->disconnect();
-        }
-
-        bool blocked() const noexcept
-        {
-            const auto s = m_slot.lock();
-            return s && s->blocked();
-        }
-
-        void block() noexcept
-        {
-            if (auto s = m_slot.lock())
-            {
-                s->block();
-            }
-        }
-
-        void unblock() noexcept
-        {
-            if (auto s = m_slot.lock())
-            {
-                s->unblock();
-            }
-        }
-    protected:
-
-        explicit connection(weak_slot&& s) noexcept
-            : m_slot(std::move(s))
-        {}
-
-    private:
-        weak_slot m_slot;
-    };
-
-    /**
-     * A scoped_blocker blocks a slot until destruction of the scoped blocker.
-     */
-    template<class Func, class Ptr>
-    class scoped_blocker
-    {
-        using weak_slot = std::weak_ptr<slot<Func, Ptr>>;
-
-        scoped_blocker() = default;
-        scoped_blocker(const scoped_blocker&) = delete;
-        scoped_blocker(scoped_blocker&& o) noexcept
-            : m_slot{ std::move(o.m_slot) }
-        {}
-
-        scoped_blocker(weak_slot slot)
-            : m_slot(slot)
-        {
-            if (auto s = m_slot.lock())
-            {
-                s->block();
-            }
-        }
-
-        ~scoped_blocker() noexcept
-        {
-            release();
-        }
-
-        scoped_blocker& operator=(const scoped_blocker&) = delete;
-        scoped_blocker& operator=(scoped_blocker&& o) noexcept
-        {
-            release();
-            m_slot.swap(o.m_slot);
-            return *this;
-        }
-
-    private:
-        void release() noexcept
-        {
-            if (auto s = m_slot.lock())
-            {
-                s->unblock();
-            }
-        }
-
-        weak_slot m_slot;
-    };
-
-    /**
-     * A scoped_connection disconnects the slot from the signal upon destruction.
-     */
-    template<class Func, class Ptr>
-    class scoped_connection : public connection<Func, Ptr>
-    {
-    public:
-        scoped_connection() = default;
-        ~scoped_connection() override
-        {
-            disconnect();
-        }
-
-        scoped_connection(const connection& c) noexcept
-            : connection(c)
-        {}
-
-        scoped_connection(connection&& c) noexcept
-            : connection(std::move(c))
-        {}
-
-        scoped_connection(scoped_connection&& o) noexcept
-            : connection(std::move(o.m_slot))
-        {}
-
-        scoped_connection(const scoped_connection&) noexcept = delete;
-        scoped_connection& operator=(const scoped_connection&) noexcept = delete;
-    };
 
 } // namespace sig
