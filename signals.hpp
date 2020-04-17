@@ -49,37 +49,37 @@ namespace sig
         namespace traits
         {
             // Since C++14
-            template<class T>
+            template<typename T>
             using decay_t = typename std::decay<T>::type;
 
             // Since C++14
-            template< bool B, class T = void >
+            template< bool B, typename T = void >
             using enable_if_t = typename std::enable_if<B, T>::type;
 
             // Detect reference wrapper
             // @see https://stackoverflow.com/questions/40430692/how-to-detect-stdreference-wrapper-in-c-at-compile-time
-            template <class T>
+            template <typename T>
             struct is_reference_wrapper : std::false_type {};
-            template <class U>
+            template <typename U>
             struct is_reference_wrapper<std::reference_wrapper<U>> : std::true_type {};
 
             // Test for equality comparable
             // @see C++ Templates: The Complete Guide (David Vandevoorde, et. al., 2018)
-            template<class T>
+            template<typename T>
             struct is_equality_comparable
             {
             private:
                 // Test convertibility of == and !(==) to bool:
                 static void* conv(bool);
 
-                template<class U>
+                template<typename U>
                 static std::true_type test(
                     decltype(conv(std::declval<const U&>() == std::declval<const U&>())),
                     decltype(conv(!(std::declval<const U&>() == std::declval<const U&>())))
                 );
 
                 // Fallback
-                template<class U>
+                template<typename U>
                 static std::false_type test(...);
 
             public:
@@ -90,7 +90,7 @@ namespace sig
 
         // Use is_equality_compareable to try to perform the equality check
         // (if it is valid for the given type).
-        template<class T, bool = traits::is_equality_comparable<T>::value>
+        template<typename T, bool = traits::is_equality_comparable<T>::value>
         struct try_equals
         {
             static bool equals(const T& t1, const T& t2)
@@ -102,7 +102,7 @@ namespace sig
         // Partial specialization if type is not equality comparable.
         // In this case, instead of returning false, throw an exception 
         // to indicate that the type is not equality comparable.
-        template<class T>
+        template<typename T>
         struct try_equals<T, false>
         {
             static bool equals(const T&, const T&)
@@ -114,11 +114,11 @@ namespace sig
         // Primary template
         // Invokes a function object.
         // @see https://en.cppreference.com/w/cpp/types/result_of
-        template<class>
+        template<typename>
         struct invoke_helper
         {
             // Call a function object.
-            template<class Func, class... Args>
+            template<typename Func, typename... Args>
             static auto call(Func&& f, Args&&... args) -> decltype(std::forward<Func>(f)(std::forward<Args>(args)...))
             {
                 return std::forward<Func>(f)(std::forward<Args>(args)...);
@@ -127,37 +127,37 @@ namespace sig
 
         // Invoke a pointer to member function or pointer to member data.
         // @see https://en.cppreference.com/w/cpp/types/result_of
-        template<class Type, class Base>
+        template<typename Type, typename Base>
         struct invoke_helper<Type Base::*>
         {
             // Get a reference type.
-            template<class T, class Td = traits::decay_t<T>,
-            class = traits::enable_if_t<std::is_base_of<Base, Td>::value>>
+            template<typename T, typename Td = traits::decay_t<T>,
+            typename = traits::enable_if_t<std::is_base_of<Base, Td>::value>>
             static auto get(T&& t) -> T&&
             {
                 return t;
             }
 
             // Get a std::reference_wrapper
-            template<class T, class Td = traits::decay_t<T>,
-            class = traits::enable_if_t<traits::is_reference_wrapper<Td>::value>>
+            template<typename T, typename Td = traits::decay_t<T>,
+            typename = traits::enable_if_t<traits::is_reference_wrapper<Td>::value>>
             static auto get(T&& t) -> decltype(t.get())
             {
                 return t.get();
             }
 
             // Get a pointer or pointer-like object (like smart_ptr, or unique_ptr)
-            template<class T, class Td = traits::decay_t<T>,
-            class = traits::enable_if_t<!std::is_base_of<Base, Td>::value>,
-            class = traits::enable_if_t<!traits::is_reference_wrapper<Td>::value>>
+            template<typename T, typename Td = traits::decay_t<T>,
+            typename = traits::enable_if_t<!std::is_base_of<Base, Td>::value>,
+            typename = traits::enable_if_t<!traits::is_reference_wrapper<Td>::value>>
             static auto get(T&& t) -> decltype(*std::forward<T>(t))
             {
                 return *std::forward<T>(t);
             }
 
             // Call a pointer to a member function.
-            template<class T, class... Args, class Type1,
-            class = traits::enable_if_t<std::is_function<Type1>::value>>
+            template<typename T, typename... Args, typename Type1,
+            typename = traits::enable_if_t<std::is_function<Type1>::value>>
             static auto call(Type1 Base::* pmf, T&& t, Args&&... args)
                 -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
             {
@@ -165,7 +165,7 @@ namespace sig
             }
 
             // Call a pointer to member data.
-            template<class T>
+            template<typename T>
             static auto call(Type Base::* pmd, T&& t)
                 -> decltype(get(std::forward<T>(t)).*pmd)
             {
