@@ -175,9 +175,102 @@ namespace sig
             }
         };
 
+        /**
+         * Slot state is used as both a non-template base class for slots
+         * as well as storing connection information about the slot.
+         */
+        class slot_state
+        {
+        public:
+            constexpr slot_state() noexcept
+                : m_Index(0)
+                , m_Connected(true)
+                , m_Blocked(false)
+            {}
+
+            slot_state(const slot_state& s) noexcept
+                : m_Index(s.m_Index)
+                , m_Connected(true)
+                , m_Blocked(false)
+            {
+                m_Connected.store(s.m_Connected.load());
+                m_Blocked.store(s.m_Blocked.load());
+            }
+
+            slot_state(slot_state&& s) noexcept
+                : m_Index(s.m_Index)
+                , m_Connected(true)
+                , m_Blocked(false)
+            {
+                m_Connected.store(s.m_Connected.load());
+                m_Blocked.store(s.m_Blocked.load());
+            }
+
+            virtual ~slot_state() = default;
+
+            slot_state& operator=(const slot_state& s) noexcept
+            {
+                m_Index = s.m_Index;
+                m_Connected.store(s.m_Connected.load());
+                m_Blocked.store(s.m_Blocked.load());
+            }
+
+            slot_state& operator=(slot_state&& s) noexcept
+            {
+                m_Index = s.m_Index;
+                m_Connected.store(s.m_Connected.load());
+                m_Blocked.store(s.m_Blocked.load());
+            }
+
+            virtual bool connected() const noexcept
+            {
+                return m_Connected;
+            }
+
+            bool disconnect() noexcept
+            {
+                bool ret = m_Connected.exchange(false);
+                if (ret)
+                {
+                    do_disconnect();
+                }
+
+                return ret;
+            }
+
+            bool blocked() const noexcept
+            {
+                return m_Blocked;
+            }
+
+            void block() noexcept
+            {
+                m_Blocked = true;
+            }
+
+            void unblock() noexcept
+            {
+                m_Blocked = false;
+            }
+
+        protected:
+            virtual void do_disconnect()
+            {}
+
+            std::size_t& index()
+            {
+                return m_Index;
+            }
+
+        private:
+            std::size_t m_Index;
+            std::atomic_bool m_Connected;
+            std::atomic_bool m_Blocked;
+        };
+
         // Base class for slot implementations.
         template<typename R, typename... Args>
-        class slot_impl
+        class slot_impl : public slot_state
         {
         public:
             virtual ~slot_impl() = default;
@@ -265,76 +358,223 @@ namespace sig
             function_type m_Func;
         };
 
-        /**
-         * Slot state is used as both a non-template base class for slots
-         * as well as storing connection information about the slot.
-         */
-        class slot_state
+        // Slot implementation for pointer to member function that automatically 
+        // tracks the lifetime of a supplied object through a weak pointer in 
+        // order to disconnect the slot on object destruction.
+        template<typename R, typename Func, typename WeakPtr, typename... Args>
+        class slot_pmf_tracked : public slot_impl<R, Args...>
         {
         public:
-            constexpr slot_state() noexcept
-                : m_Index(0)
-                , m_Connected(true)
-                , m_Blocked(false)
+            using function_type = traits::decay_t<Func>;
+            using pointer_type = traits::decay_t<WeakPtr>;
+
+            slot_pmf_tracked(const slot_pmf_tracked&) = default;
+
+            slot_pmf_tracked(Func&& func, WeakPtr&& ptr)
+                : m_Ptr{ std::forward<WeakPtr>(ptr) }
+                , m_Func{ std::forward<Func>(func) }
             {}
 
-            virtual ~slot_state() = default;
-
-            virtual bool connected() const noexcept
+            virtual slot_impl<R, Args...>* clone() const override
             {
-                return m_Connected;
+                return new slot_pmf_tracked(*this);
             }
 
-            bool disconnect() noexcept
+            virtual bool equals(const slot_impl<R, Args...>* s) const override
             {
-                bool ret = m_Connected.exchange(false);
-                if (ret)
+                if (auto spmft = dynamic_cast<const slot_pmf_tracked*>(s))
                 {
-                    do_disconnect();
+                    return try_equals<pointer_type>::equals(m_Ptr, spmft->m_Ptr) &&
+                        try_equals<function_type>::equals(m_Func, spmft->m_Func);
                 }
 
-                return ret;
+                return false;
             }
 
-            bool blocked() const noexcept
+            virtual R operator()(Args&&... args) override
             {
-                return m_Blocked;
-            }
+                auto sp = m_Ptr.lock();
+                if (!sp)
+                {
+                    disconnect();
+                    return R{};
+                }
 
-            void block() noexcept
-            {
-                m_Blocked = true;
-            }
+                if (connected())
+                {
+                    return invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+                }
 
-            void unblock() noexcept
-            {
-                m_Blocked = false;
-            }
-
-        protected:
-            virtual void do_disconnect()
-            {}
-
-            std::size_t& index()
-            {
-                return m_Index;
+                return R{};
             }
 
         private:
-            std::size_t m_Index;
-            std::atomic_bool m_Connected;
-            std::atomic_bool m_Blocked;
+            pointer_type m_Ptr;
+            function_type m_Func;
         };
-
     } // namespace detail
 
-    // Primary template
+    /**
+     * An RAII object that blocks connections until destruction.
+     */
+    class connection_blocker
+    {
+    public:
+        connection_blocker() noexcept = default;
+        ~connection_blocker() noexcept
+        {
+            release();
+        }
+
+        connection_blocker(const connection_blocker&) noexcept = delete;
+        connection_blocker(connection_blocker&& c) noexcept
+            : m_Slot{ std::move(c.m_Slot) }
+        {}
+
+        connection_blocker& operator=(const connection_blocker&) = delete;
+        connection_blocker& operator=(connection_blocker&& c) noexcept
+        {
+            release();
+            m_Slot.swap(c.m_Slot);
+            return *this;
+        }
+
+    private:
+        friend class connection;
+        explicit connection_blocker(std::weak_ptr<detail::slot_state> slot) noexcept
+            : m_Slot{ std::move(slot) }
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->block();
+            }
+        }
+
+        void release() noexcept
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->unblock();
+            }
+        }
+
+        std::weak_ptr<detail::slot_state> m_Slot;
+    };
+
+    /**
+     * Connection object allows for managing slot connections.
+     */
+    class connection
+    {
+    public:
+        connection() noexcept = default;
+        virtual ~connection() = default;
+
+        connection(const connection&) noexcept = default;
+        connection(connection&&) noexcept = default;
+        connection& operator=(const connection&) noexcept = default;
+        connection& operator=(connection&&) noexcept = default;
+
+        bool valid() const noexcept
+        {
+            return !m_Slot.expired();
+        }
+
+        bool connected() const noexcept
+        {
+            const auto s = m_Slot.lock();
+            return s && s->connected();
+        }
+
+        bool disconnect() noexcept
+        {
+            auto s = m_Slot.lock();
+            return s && s->disconnect();
+        }
+
+        bool blocked() const noexcept
+        {
+            const auto s = m_Slot.lock();
+            return s && s->blocked();
+        }
+
+        void block() noexcept
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->block();
+            }
+        }
+
+        void unblock() noexcept
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->unblock();
+            }
+        }
+
+        connection_blocker blocker() const noexcept
+        {
+            return connection_blocker(m_Slot);
+        }
+
+    protected:
+        explicit connection(std::weak_ptr<detail::slot_state> s) noexcept
+            : m_Slot{ std::move(s) }
+        {}
+
+        std::weak_ptr<detail::slot_state> m_Slot;
+    };
+
+    /**
+     * An RAII version of connection which disconnects it's slot on destruction.
+     */
+    class scoped_connection : public connection
+    {
+    public:
+        scoped_connection() = default;
+        virtual ~scoped_connection() override
+        {
+            disconnect();
+        }
+
+        scoped_connection(const connection& c) noexcept
+            : connection(c)
+        {}
+
+        scoped_connection(connection&& c) noexcept
+            : connection(std::move(c))
+        {}
+
+        scoped_connection(const scoped_connection&) noexcept = delete;
+
+        scoped_connection(scoped_connection&& s) noexcept
+            : connection(std::move(s.m_Slot))
+        {}
+
+        scoped_connection& operator=(const scoped_connection&) noexcept = delete;
+
+        scoped_connection& operator=(scoped_connection&& s) noexcept
+        {
+            disconnect();
+            m_Slot.swap(s.m_Slot);
+            return *this;
+        }
+
+    private:
+        explicit scoped_connection(std::weak_ptr<detail::slot_state> s) noexcept
+            : connection(std::move(s))
+        {}
+    };
+
+    // Primary slot template
     template<typename Func>
     class slot;
 
     // Specialization for function objects.
     template<typename R, typename... Args>
-    class slot<R(Args...)> : public detail::slot_state
+    class slot<R(Args...)>
     {
     public:
         using impl = detail::slot_impl<R, Args...>;
