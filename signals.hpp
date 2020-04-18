@@ -31,6 +31,8 @@
   *  @see https://github.com/palacaze/sigslot
   */
 
+#include <atomic>       // for std::atomic_bool
+#include <cstddef>      // for std::size_t and std::nullptr_t
 #include <exception>    // for std::exception
 #include <functional>   // for std::reference_wrapper
 #include <memory>       // for std::unique_ptr
@@ -132,33 +134,33 @@ namespace sig
         {
             // Get a reference type.
             template<typename T, typename Td = traits::decay_t<T>,
-            typename = traits::enable_if_t<std::is_base_of<Base, Td>::value>>
-            static auto get(T&& t) -> T&&
+                typename = traits::enable_if_t<std::is_base_of<Base, Td>::value>>
+                static auto get(T&& t) -> T&&
             {
                 return t;
             }
 
             // Get a std::reference_wrapper
             template<typename T, typename Td = traits::decay_t<T>,
-            typename = traits::enable_if_t<traits::is_reference_wrapper<Td>::value>>
-            static auto get(T&& t) -> decltype(t.get())
+                typename = traits::enable_if_t<traits::is_reference_wrapper<Td>::value>>
+                static auto get(T&& t) -> decltype(t.get())
             {
                 return t.get();
             }
 
             // Get a pointer or pointer-like object (like smart_ptr, or unique_ptr)
             template<typename T, typename Td = traits::decay_t<T>,
-            typename = traits::enable_if_t<!std::is_base_of<Base, Td>::value>,
-            typename = traits::enable_if_t<!traits::is_reference_wrapper<Td>::value>>
-            static auto get(T&& t) -> decltype(*std::forward<T>(t))
+                typename = traits::enable_if_t<!std::is_base_of<Base, Td>::value>,
+                typename = traits::enable_if_t<!traits::is_reference_wrapper<Td>::value>>
+                static auto get(T&& t) -> decltype(*std::forward<T>(t))
             {
                 return *std::forward<T>(t);
             }
 
             // Call a pointer to a member function.
             template<typename T, typename... Args, typename Type1,
-            typename = traits::enable_if_t<std::is_function<Type1>::value>>
-            static auto call(Type1 Base::* pmf, T&& t, Args&&... args)
+                typename = traits::enable_if_t<std::is_function<Type1>::value>>
+                static auto call(Type1 Base::* pmf, T&& t, Args&&... args)
                 -> decltype((get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...))
             {
                 return (get(std::forward<T>(t)).*pmf)(std::forward<Args>(args)...);
@@ -190,7 +192,7 @@ namespace sig
         {
         public:
             using fuction_type = traits::decay_t<Func>;
-            
+
             slot_func(const slot_func&) = default;  // Copy constructor.
 
             slot_func(Func&& func)
@@ -247,7 +249,7 @@ namespace sig
                 if (auto spmf = dynamic_cast<const slot_pmf*>(s))
                 {
                     return try_equals<pointer_type>::equals(m_Ptr, spmf->m_Ptr) &&
-                           try_equals<function_type>::equals(m_Func, spmf->m_Func);
+                        try_equals<function_type>::equals(m_Func, spmf->m_Func);
                 }
 
                 return false;
@@ -263,6 +265,67 @@ namespace sig
             function_type m_Func;
         };
 
+        /**
+         * Slot state is used as both a non-template base class for slots
+         * as well as storing connection information about the slot.
+         */
+        class slot_state
+        {
+        public:
+            constexpr slot_state() noexcept
+                : m_Index(0)
+                , m_Connected(true)
+                , m_Blocked(false)
+            {}
+
+            virtual ~slot_state() = default;
+
+            virtual bool connected() const noexcept
+            {
+                return m_Connected;
+            }
+
+            bool disconnect() noexcept
+            {
+                bool ret = m_Connected.exchange(false);
+                if (ret)
+                {
+                    do_disconnect();
+                }
+
+                return ret;
+            }
+
+            bool blocked() const noexcept
+            {
+                return m_Blocked;
+            }
+
+            void block() noexcept
+            {
+                m_Blocked = true;
+            }
+
+            void unblock() noexcept
+            {
+                m_Blocked = false;
+            }
+
+        protected:
+            virtual void do_disconnect()
+            {}
+
+            std::size_t& index()
+            {
+                return m_Index;
+            }
+
+        private:
+            std::size_t m_Index;
+            std::atomic_bool m_Connected;
+            std::atomic_bool m_Blocked;
+        };
+
     } // namespace detail
 
     // Primary template
@@ -271,7 +334,7 @@ namespace sig
 
     // Specialization for function objects.
     template<typename R, typename... Args>
-    class slot<R(Args...)>
+    class slot<R(Args...)> : public detail::slot_state
     {
     public:
         using impl = detail::slot_impl<R, Args...>;
