@@ -125,8 +125,8 @@ namespace sig
 
             template<typename T>
             struct is_weak_ptr<T, void_t<decltype(std::declval<T>().expired()),
-                                         decltype(std::declval<T>().lock()),
-                                         decltype(std::declval<T>().reset())>>
+                decltype(std::declval<T>().lock()),
+                decltype(std::declval<T>().reset())>>
                 : std::true_type
             {};
 
@@ -224,6 +224,149 @@ namespace sig
             {
                 return get(std::forward<T>(t)).*pmd;
             }
+        };
+
+        /**
+         * A copy-on-write template class to avoid unnecessary copies of
+         * data unless the data will be modified. This greatly improves
+         * the performance of the signal class in a multi-threaded environment
+         * since copies only require a shared pointer copy.
+         * The copy-on-write pointer has similar semantics to shared pointers.
+         *
+         * @see API Design for C++, Martin Reddy (Elsevier, 2011).
+         */
+        template<typename T>
+        class cow_ptr
+        {
+        public:
+            using value_type = T;
+            using pointer_type = std::shared_ptr<T>;
+
+            constexpr cow_ptr() noexcept = default;
+            ~cow_ptr() = default;
+
+            // Explicit construction from convertible type.
+            // It is assumed that U is convertible to T.
+            template<typename U>
+            constexpr explicit cow_ptr(U&& other,
+                traits::enable_if_t<!std::is_same<traits::decay_t<U>, cow_ptr>::value, void*> = nullptr)
+                : m_Ptr(new T(std::forward<U>(other)))
+            {}
+
+            constexpr cow_ptr(const cow_ptr& other) noexcept
+                : m_Ptr(other.m_Ptr)
+            {}
+
+            constexpr cow_ptr(cow_ptr&& other) noexcept
+                : m_Ptr(std::move(other.m_Ptr))
+            {}
+
+            // Copy assignment operator.
+            cow_ptr& operator=(const cow_ptr& other) noexcept
+            {
+                if (this != &other)
+                {
+                    *this = cow_ptr(other);
+                }
+
+                return *this;
+            }
+
+            // Move assignment operator.
+            cow_ptr& operator=(cow_ptr&& other) noexcept
+            {
+                m_Ptr = std::move(other.m_Ptr);
+                return *this;
+            }
+
+            // Non-const dereference operator.
+            // Will create a copy of the underlying object.
+            T& operator*()
+            {
+                detach();
+                return *m_Ptr;
+            }
+
+            // Const dereference operator.
+            // No copy is made of the underlying object
+            const T& operator*() const noexcept
+            {
+                return *m_Ptr;
+            }
+
+            // Non-const pointer dereference operator.
+            // Will create a copy of the underlying object.
+            T* operator->()
+            {
+                detach();
+                return m_Ptr.get();
+            }
+
+            // Const pointer dereference operator.
+            // No copy is made of the underlying type.
+            const T* operator->() const
+            {
+                return m_Ptr.get();
+            }
+
+            // Non-const implicit conversion of underlying type.
+            // A copy will be created of the underlying object.
+            operator T* ()
+            {
+                detach();
+                return m_Ptr.get();
+            }
+
+            // Const implicit conversion of underlying type.
+            // No copy is made of the underlying type.
+            operator const T* () const
+            {
+                return m_Ptr.get();
+            }
+
+            T* data()
+            {
+                detach();
+                return m_Ptr.get();
+            }
+
+            const T* data() const
+            {
+                return m_Ptr.get();
+            }
+
+            template<typename U>
+            bool operator==(const cow_ptr<U>& rhs) const noexcept
+            {
+                return m_Ptr == rhs.m_Ptr;
+            }
+
+            template<typename U>
+            bool operator!=(const cow_ptr<U>& rhs) const noexcept
+            {
+                return m_Ptr != rhs.m_Ptr;
+            }
+
+            // Explicit bool conversion to check for a valid
+            // internal value.
+            explicit operator bool() const noexcept
+            {
+                return bool(m_Ptr);
+            }
+
+        private:
+            void detach()
+            {
+                if (m_Ptr && m_Ptr.use_count() > 1)
+                {
+                    // Detach from the shared pointer
+                    // creating a new instance of the stored object.
+                    *this = cow_ptr(*m_Ptr);
+                }
+
+            }
+
+            pointer_type m_Ptr;
         };
 
         /**
@@ -782,7 +925,7 @@ namespace sig
         {}
 
         template<typename Func, typename Ptr>
-        slot(Func&& func, Ptr&& ptr, detail::traits::enable_if_t<detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr )
+        slot(Func&& func, Ptr&& ptr, detail::traits::enable_if_t<detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr)
             : m_pImpl{ new detail::slot_pmf_tracked<R, Func, decltype(to_weak(std::forward<Ptr>(ptr))), Args...>(std::forward<Func>(func), to_weak(std::forward<Ptr>(ptr))) }
         {}
 
@@ -848,6 +991,16 @@ namespace sig
         }
 
     private:
+        // Signals need to access the state of the slots.
+        template<typename Func>
+        friend class signal;
+
+        // Query the state of the slot.
+        constexpr detail::slot_state& state()
+        {
+            return *m_pImpl;
+        }
+
         std::unique_ptr<impl> m_pImpl;              // Pointer to implementation
     };
 
@@ -867,10 +1020,25 @@ namespace sig
     public:
         using slot_type = slot_ptr<R(Args...)>;
         using list_type = std::vector<slot_type>;
+        using cow_type = detail::cow_ptr<list_type>;
+
+
 
     private:
+        void add_slot(slot_type&& s)
+        {
+            std::lock_guard(m_SlotMutex);
+            s->state().index() = m_Slots->size();
+            m_Slots->push_back(std::move(s));
+        }
+
+        void clear()
+        {
+
+        }
+
         std::mutex m_SlotMutex;
-        list_type m_Slots;
+        cow_type m_Slots;
         std::atomic_bool m_Blocked;
     };
 
