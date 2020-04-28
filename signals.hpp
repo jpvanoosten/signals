@@ -37,8 +37,10 @@
 #include <exception>    // for std::exception
 #include <functional>   // for std::reference_wrapper
 #include <memory>       // for std::unique_ptr
+#include <mutex>        // for std::mutex, and std::lock_guard
 #include <type_traits>  // for std::decay, and std::enable_if
 #include <utility>      // for std::declval.
+#include <vector>       // for std::vector
 
 namespace sig
 {
@@ -810,7 +812,7 @@ namespace sig
         }
 
         // Move assignment operator.
-        slot& operator=(slot&& other)
+        slot& operator=(slot&& other) noexcept
         {
             m_pImpl = std::move(other.m_pImpl);
             return *this;
@@ -847,6 +849,29 @@ namespace sig
 
     private:
         std::unique_ptr<impl> m_pImpl;              // Pointer to implementation
+    };
+
+    // Shared pointer to a slot.
+    template<typename T>
+    using slot_ptr = std::shared_ptr<slot<T>>;
+
+
+    // Primary template for the signal.
+    template<typename Func>
+    class signal;
+
+    // Partial specialization taking callable.
+    template<typename R, typename... Args>
+    class signal<R(Args...)>
+    {
+    public:
+        using slot_type = slot_ptr<R(Args...)>;
+        using list_type = std::vector<slot_type>;
+
+    private:
+        std::mutex m_SlotMutex;
+        list_type m_Slots;
+        std::atomic_bool m_Blocked;
     };
 
 
