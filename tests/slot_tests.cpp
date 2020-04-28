@@ -21,7 +21,19 @@ int sum(int i, int j)
     return i + j;
 }
 
+class VoidMemberFunc
+{
+public:
+    VoidMemberFunc() = default;
+
+    void DoSomething()
+    {
+        std::cout << "VoidMemberFunc::DoSomething" << std::endl;
+    }
+};
+
 auto lambda = [](int i, int j) { return i + j; };
+auto void_lambda = [](){};
 
 struct Functor
 {
@@ -102,6 +114,42 @@ TEST(slot, VoidFunc)
     EXPECT_TRUE(s2 != s3);
 }
 
+TEST(slot, VoidMemberFunc)
+{
+    using s = sig::slot<void()>;
+
+    VoidMemberFunc vmf;
+
+    auto s1 = s(&VoidMemberFunc::DoSomething, &vmf);
+
+    // Slot returns opt::optional<void>
+    auto res = s1();
+
+    EXPECT_FALSE(res);
+}
+
+TEST(slot, VoidMemberFuncTracked)
+{
+    using s = sig::slot<void()>;
+
+    auto vmf = std::make_shared<VoidMemberFunc>();
+
+    auto s1 = s(&VoidMemberFunc::DoSomething, vmf);
+
+    // Slot returns opt::optional<void>
+    auto res = s1();
+
+    EXPECT_FALSE(res);
+
+    // Release shared pointer.
+    vmf.reset();
+
+    res = s1();
+
+    // Still disengaged optional<void>
+    EXPECT_FALSE(res);
+}
+
 TEST(slot, IntFunc)
 {
     using s = sig::slot<int(int, int)>;
@@ -133,7 +181,7 @@ TEST(slot, Functor)
 
 TEST(slot, Lambda)
 {
-    using s = sig::slot<int(int,int)>;
+    using s = sig::slot<int(int, int)>;
 
     auto s1 = s(lambda);
     auto s2 = s(lambda);
@@ -142,8 +190,23 @@ TEST(slot, Lambda)
     EXPECT_EQ(res, 8);
 
     // Two slots pointing to the same lambda should be true?
-    EXPECT_TRUE( s1 == s2 );
+    EXPECT_TRUE(s1 == s2);
 }
+
+TEST(slot, VoidLambda)
+{
+    using s = sig::slot<void(void)>;
+
+    auto s1 = s(void_lambda);
+    auto s2 = s(void_lambda);
+
+    auto res = s1();
+    EXPECT_FALSE(res);
+
+    // Two slots pointing to the same lambda should be true?
+    EXPECT_TRUE(s1 == s2);
+}
+
 
 TEST(slot, BindLambda)
 {
@@ -223,6 +286,11 @@ TEST(slot, SharedPtr)
 
     auto res = s();
     EXPECT_EQ(res, 9);
+
+    p.reset();
+
+    res = s();
+    EXPECT_FALSE(res);
 }
 
 TEST(slot, NullSlot)

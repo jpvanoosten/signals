@@ -31,6 +31,7 @@
   *  @see https://github.com/palacaze/sigslot
   */
 
+#include "optional.hpp" // for opt::optional
 #include <atomic>       // for std::atomic_bool
 #include <cstddef>      // for std::size_t and std::nullptr_t
 #include <exception>    // for std::exception
@@ -46,10 +47,37 @@ namespace sig
     class not_comparable_exception : public std::exception
     {};
 
+    // Pointers that can be converted to a weak pointer concept for 
+    // tracking purposes must implement the to_weak() function in order
+    // to make use of Argument-dependent lookup (ADL) and to convert
+    // it to a type whose lifetime can be tracked by the slot.
+    template<typename T>
+    std::weak_ptr<T> to_weak(std::weak_ptr<T> w)
+    {
+        return w;
+    }
+
+    template<typename T>
+    std::weak_ptr<T> to_weak(std::shared_ptr<T> s)
+    {
+        return s;
+    }
+
     namespace detail
     {
         namespace traits
         {
+            // Since C++17
+            // @see https://en.cppreference.com/w/cpp/types/void_t
+            template<typename... Ts>
+            struct make_void
+            {
+                typedef void type;
+            };
+
+            template<typename... Ts>
+            using void_t = typename make_void<Ts...>::type;
+
             // Since C++14
             template<typename T>
             using decay_t = typename std::decay<T>::type;
@@ -88,6 +116,27 @@ namespace sig
                 static constexpr bool value = decltype(test<T>(nullptr, nullptr))::value;
             };
 
+            // Detect if type supports weak_ptr semantics.
+            template<typename T, typename = void>
+            struct is_weak_ptr : std::false_type
+            {};
+
+            template<typename T>
+            struct is_weak_ptr<T, void_t<decltype(std::declval<T>().expired()),
+                                         decltype(std::declval<T>().lock()),
+                                         decltype(std::declval<T>().reset())>>
+                : std::true_type
+            {};
+
+            // Test to see if a type can be converted to a weak_ptr type.
+            template <typename T, typename = void>
+            struct is_weak_ptr_convertable : std::false_type
+            {};
+
+            template <typename T>
+            struct is_weak_ptr_convertable<T, void_t<decltype(to_weak(std::declval<T>()))>>
+                : is_weak_ptr<decltype(to_weak(std::declval<T>()))>
+            {};
         } // namespace traits
 
         // Use is_equality_compareable to try to perform the equality check
@@ -102,8 +151,8 @@ namespace sig
         };
 
         // Partial specialization if type is not equality comparable.
-        // In this case, instead of returning false, throw an exception 
-        // to indicate that the type is not equality comparable.
+        // In this case, throw an exception to indicate that the type is not 
+        // equality comparable.
         template<typename T>
         struct try_equals<T, false>
         {
@@ -188,31 +237,29 @@ namespace sig
                 , m_Blocked(false)
             {}
 
+            // Atomic variables are not CopyConstructible.
+            // @see https://en.cppreference.com/w/cpp/atomic/atomic/atomic
             slot_state(const slot_state& s) noexcept
                 : m_Index(s.m_Index)
-                , m_Connected(true)
-                , m_Blocked(false)
-            {
-                m_Connected.store(s.m_Connected.load());
-                m_Blocked.store(s.m_Blocked.load());
-            }
+                , m_Connected(s.m_Connected.load())
+                , m_Blocked(s.m_Blocked.load())
+            {}
 
             slot_state(slot_state&& s) noexcept
                 : m_Index(s.m_Index)
-                , m_Connected(true)
-                , m_Blocked(false)
-            {
-                m_Connected.store(s.m_Connected.load());
-                m_Blocked.store(s.m_Blocked.load());
-            }
+                , m_Connected(s.m_Connected.load())
+                , m_Blocked(s.m_Blocked.load())
+            {}
 
             virtual ~slot_state() = default;
 
             slot_state& operator=(const slot_state& s) noexcept
             {
                 m_Index = s.m_Index;
-                m_Connected.store(s.m_Connected.load());
-                m_Blocked.store(s.m_Blocked.load());
+                m_Connected = s.m_Connected.load();
+                m_Blocked = s.m_Blocked.load();
+
+                return *this;
             }
 
             slot_state& operator=(slot_state&& s) noexcept
@@ -220,6 +267,8 @@ namespace sig
                 m_Index = s.m_Index;
                 m_Connected.store(s.m_Connected.load());
                 m_Blocked.store(s.m_Blocked.load());
+
+                return *this;
             }
 
             virtual bool connected() const noexcept
@@ -276,7 +325,7 @@ namespace sig
             virtual ~slot_impl() = default;
             virtual slot_impl* clone() const = 0;
             virtual bool equals(const slot_impl* s) const = 0;
-            virtual R operator()(Args&&... args) = 0;
+            virtual opt::optional<R> operator()(Args&&... args) = 0;
         };
 
         // Slot implementation for callable function objects (Functors)
@@ -307,9 +356,46 @@ namespace sig
                 return false;
             }
 
-            virtual R operator()(Args&&... args) override
+            virtual opt::optional<R> operator()(Args&&... args) override
             {
                 return invoke_helper<fuction_type>::call(m_Func, std::forward<Args>(args)...);
+            }
+
+        private:
+            fuction_type m_Func;
+        };
+
+        // Specialization for void return types.
+        template<typename Func, typename... Args>
+        class slot_func<void, Func, Args...> : public slot_impl<void, Args...>
+        {
+        public:
+            using fuction_type = traits::decay_t<Func>;
+
+            slot_func(const slot_func&) = default;  // Copy constructor.
+
+            slot_func(Func&& func)
+                : m_Func{ std::forward<Func>(func) }
+            {}
+
+            virtual slot_impl<void, Args...>* clone() const override
+            {
+                return new slot_func(*this);
+            }
+
+            virtual bool equals(const slot_impl<void, Args...>* s) const override
+            {
+                if (auto sfunc = dynamic_cast<const slot_func*>(s))
+                {
+                    return try_equals<fuction_type>::equals(m_Func, sfunc->m_Func);
+                }
+
+                return false;
+            }
+
+            virtual opt::optional<void> operator()(Args&&... args) override
+            {
+                return (invoke_helper<fuction_type>::call(m_Func, std::forward<Args>(args)...), opt::nullopt);
             }
 
         private:
@@ -348,9 +434,52 @@ namespace sig
                 return false;
             }
 
-            virtual R operator()(Args&&... args) override
+            virtual opt::optional<R> operator()(Args&&... args) override
             {
                 return invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+            }
+
+        private:
+            pointer_type m_Ptr;
+            function_type m_Func;
+        };
+
+        // Slot implementation for pointer to member function and
+        // pointer to member data.
+        // Specialized on void return value.
+        template<typename Func, typename Ptr, typename... Args>
+        class slot_pmf<void, Func, Ptr, Args...> : public slot_impl<void, Args...>
+        {
+        public:
+            using function_type = traits::decay_t<Func>;
+            using pointer_type = traits::decay_t<Ptr>;
+
+            slot_pmf(const slot_pmf&) = default;
+
+            slot_pmf(Func&& func, Ptr&& ptr)
+                : m_Ptr{ std::forward<Ptr>(ptr) }
+                , m_Func{ std::forward<Func>(func) }
+            {}
+
+            virtual slot_impl<void, Args...>* clone() const override
+            {
+                return new slot_pmf(*this);
+            }
+
+            virtual bool equals(const slot_impl<void, Args...>* s) const override
+            {
+                if (auto spmf = dynamic_cast<const slot_pmf*>(s))
+                {
+                    return try_equals<pointer_type>::equals(m_Ptr, spmf->m_Ptr) &&
+                        try_equals<function_type>::equals(m_Func, spmf->m_Func);
+                }
+
+                return false;
+            }
+
+            virtual opt::optional<void> operator()(Args&&... args) override
+            {
+                return (invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...), opt::nullopt);
             }
 
         private:
@@ -391,21 +520,77 @@ namespace sig
                 return false;
             }
 
-            virtual R operator()(Args&&... args) override
+            virtual opt::optional<R> operator()(Args&&... args) override
             {
                 auto sp = m_Ptr.lock();
                 if (!sp)
                 {
-                    disconnect();
-                    return R{};
+                    this->disconnect();
+                    return {};
                 }
 
-                if (connected())
+                if (this->connected())
                 {
-                    return invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+                    return invoke_helper<function_type>::call(m_Func, sp, std::forward<Args>(args)...);
                 }
 
-                return R{};
+                return {};
+            }
+
+        private:
+            pointer_type m_Ptr;
+            function_type m_Func;
+        };
+
+        // Slot implementation for pointer to member function that automatically 
+        // tracks the lifetime of a supplied object through a weak pointer in 
+        // order to disconnect the slot on object destruction.
+        // Partial specialization for void return types.
+        template<typename Func, typename WeakPtr, typename... Args>
+        class slot_pmf_tracked<void, Func, WeakPtr, Args...> : public slot_impl<void, Args...>
+        {
+        public:
+            using function_type = traits::decay_t<Func>;
+            using pointer_type = traits::decay_t<WeakPtr>;
+
+            slot_pmf_tracked(const slot_pmf_tracked&) = default;
+
+            slot_pmf_tracked(Func&& func, WeakPtr&& ptr)
+                : m_Ptr{ std::forward<WeakPtr>(ptr) }
+                , m_Func{ std::forward<Func>(func) }
+            {}
+
+            virtual slot_impl<void, Args...>* clone() const override
+            {
+                return new slot_pmf_tracked(*this);
+            }
+
+            virtual bool equals(const slot_impl<void, Args...>* s) const override
+            {
+                if (auto spmft = dynamic_cast<const slot_pmf_tracked*>(s))
+                {
+                    return try_equals<pointer_type>::equals(m_Ptr, spmft->m_Ptr) &&
+                        try_equals<function_type>::equals(m_Func, spmft->m_Func);
+                }
+
+                return false;
+            }
+
+            virtual opt::optional<void> operator()(Args&&... args) override
+            {
+                auto sp = m_Ptr.lock();
+                if (!sp)
+                {
+                    this->disconnect();
+                    return {};
+                }
+
+                if (this->connected())
+                {
+                    return (invoke_helper<function_type>::call(m_Func, sp, std::forward<Args>(args)...), opt::nullopt);
+                }
+
+                return {};
             }
 
         private:
@@ -414,9 +599,9 @@ namespace sig
         };
     } // namespace detail
 
-    /**
-     * An RAII object that blocks connections until destruction.
-     */
+/**
+ * An RAII object that blocks connections until destruction.
+ */
     class connection_blocker
     {
     public:
@@ -590,8 +775,13 @@ namespace sig
 
         // Slot that takes a pointer to member function or pointer to member data.
         template<typename Func, typename Ptr>
-        slot(Func&& func, Ptr&& ptr)
+        slot(Func&& func, Ptr&& ptr, detail::traits::enable_if_t<!detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr)
             : m_pImpl{ new detail::slot_pmf<R, Func, Ptr, Args...>(std::forward<Func>(func), std::forward<Ptr>(ptr)) }
+        {}
+
+        template<typename Func, typename Ptr>
+        slot(Func&& func, Ptr&& ptr, detail::traits::enable_if_t<detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr )
+            : m_pImpl{ new detail::slot_pmf_tracked<R, Func, decltype(to_weak(std::forward<Ptr>(ptr))), Args...>(std::forward<Func>(func), to_weak(std::forward<Ptr>(ptr))) }
         {}
 
         // Copy constructor.
@@ -649,8 +839,8 @@ namespace sig
             return !(s1 == s2);
         }
 
-        // Invoke the signal.
-        R operator()(Args&&... args)
+        // Invoke the slot.
+        opt::optional<R> operator()(Args&&... args)
         {
             return (*m_pImpl)(std::forward<Args>(args)...);
         }
