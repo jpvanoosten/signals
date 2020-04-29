@@ -245,8 +245,7 @@ namespace sig
             constexpr cow_ptr() noexcept = default;
             ~cow_ptr() = default;
 
-            template<typename U>
-            constexpr explicit cow_ptr(U* other) noexcept
+            constexpr explicit cow_ptr(T* other) noexcept
                 : m_Ptr(other)
             {}
 
@@ -276,9 +275,8 @@ namespace sig
                 return *this;
             }
 
-            // Assign from other value that is assignable to T.
-            template<typename U>
-            cow_ptr& operator=(U* other) noexcept
+            // Assign from other value.
+            cow_ptr& operator=(T* other) noexcept
             {
                 m_Ptr = pointer_type(other);
                 return *this;
@@ -1045,7 +1043,7 @@ namespace sig
     template<typename Func>
     class signal;
 
-    // Partial specialization taking callable.
+    // Partial specialization taking a callable.
     template<typename R, typename... Args>
     class signal<R(Args...)>
     {
@@ -1053,23 +1051,68 @@ namespace sig
         using slot_type = slot_ptr<R(Args...)>;
         using list_type = std::vector<slot_type>;
         using cow_type = detail::cow_ptr<list_type>;
+        using mutex_type = std::mutex;
+        using lock_type = std::unique_lock<mutex_type>;
 
+        signal()
+            : m_Blocked(false)
+        {}
+        ~signal() = default;
 
+        // Not copyable.
+        signal(const signal&) = delete;
+        // Not copy assignable.
+        signal& operator=(const signal&) = delete;
+
+        // Moveable.
+        signal(signal&& other) noexcept
+            : m_Blocked(other.m_Blocked.load())
+        {
+            lock_type lock(other.m_SlotMutex);
+            m_Slots = std::move(other.m_Slots);
+        }
+
+        // Move assignable.
+        signal& operator=(signal&& other) noexcept
+        {
+            lock_type lock1(m_SlotMutex, std::defer_lock);
+            lock_type lock2(other.m_SlotMutex, std::defer_lock);
+            std::lock(lock1, lock2);
+            
+            m_Slots = std::move(other.m_Slots);
+            m_Blocked = other.m_Blocked.load();
+        }
+
+        opt::optional<R> operator()(Args... args)
+        {
+            if ( m_Blocked ) return {};
+
+            opt::optional<R> r;
+            for (const auto& s : m_Slots.read())
+            {
+                // TODO: Combiner
+                r = (*s)(std::forward<Args>(args)...);
+            }
+
+            return r;
+        }
 
     private:
         void add_slot(slot_type&& s)
         {
-            std::lock_guard(m_SlotMutex);
-            s->state().index() = m_Slots->size();
-            m_Slots->push_back(std::move(s));
+            lock_type lock(m_SlotMutex);
+            
+            auto& slots = m_Slots.write();
+            s->state().index() = slots.size();
+            slots.push_back(std::move(s));
         }
 
         void clear()
         {
-
+            lock_type
         }
 
-        std::mutex m_SlotMutex;
+        mutex_type m_SlotMutex;
         cow_type m_Slots;
         std::atomic_bool m_Blocked;
     };
