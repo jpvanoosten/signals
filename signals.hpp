@@ -245,12 +245,9 @@ namespace sig
             constexpr cow_ptr() noexcept = default;
             ~cow_ptr() = default;
 
-            // Explicit construction from convertible type.
-            // It is assumed that U is convertible to T.
             template<typename U>
-            constexpr explicit cow_ptr(U&& other,
-                traits::enable_if_t<!std::is_same<traits::decay_t<U>, cow_ptr>::value, void*> = nullptr)
-                : m_Ptr(new T(std::forward<U>(other)))
+            constexpr explicit cow_ptr(U* other) noexcept
+                : m_Ptr(other)
             {}
 
             constexpr cow_ptr(const cow_ptr& other) noexcept
@@ -279,6 +276,14 @@ namespace sig
                 return *this;
             }
 
+            // Assign from other value that is assignable to T.
+            template<typename U>
+            cow_ptr& operator=(U* other) noexcept
+            {
+                m_Ptr = pointer_type(other);
+                return *this;
+            }
+
             // Non-const dereference operator.
             // Will create a copy of the underlying object.
             T& operator*()
@@ -303,7 +308,7 @@ namespace sig
             }
 
             // Const pointer dereference operator.
-            // No copy is made of the underlying type.
+            // No copy is made of the underlying object.
             const T* operator->() const
             {
                 return m_Ptr.get();
@@ -318,7 +323,7 @@ namespace sig
             }
 
             // Const implicit conversion of underlying type.
-            // No copy is made of the underlying type.
+            // No copy is made of the underlying object.
             operator const T* () const
             {
                 return m_Ptr.get();
@@ -333,6 +338,21 @@ namespace sig
             const T* data() const
             {
                 return m_Ptr.get();
+            }
+
+            // Get read-only reference to internal value.
+            // No copy is made of the underlying object.
+            const T& read() const
+            {
+                return *m_Ptr;
+            }
+
+            // Get writable reference to internal value.
+            // A copy will be created of the underlying type.
+            T& write()
+            {
+                detach();
+                return *m_Ptr
             }
 
             template<typename U>
@@ -361,13 +381,25 @@ namespace sig
                 {
                     // Detach from the shared pointer
                     // creating a new instance of the stored object.
-                    *this = cow_ptr(*m_Ptr);
+                    *this = cow_ptr(new T(*m_Ptr));
                 }
-
             }
 
             pointer_type m_Ptr;
         };
+
+        // Utility function to create a cow_ptr.
+        template<typename T, typename... Args>
+        cow_ptr<T> make_cow(Args&&... args)
+        {
+            return cow_ptr<T>(new T(std::forward<Args>(args)...));
+        }
+
+        template<typename T, typename U, typename... Args>
+        cow_ptr<T> make_cow(std::initializer_list<U> il, Args&&... args)
+        {
+            return cow_ptr<T>(new T(il, std::forward<Args>(args)...));
+        }
 
         /**
          * Slot state is used as both a non-template base class for slots
