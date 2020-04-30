@@ -361,7 +361,7 @@ namespace opt
         public:
 
             // Destroys the current value, if any, leaving this UNINITIALIZED
-            // No-throw (assuming T::~T() doesn't)
+            // No-throw
             void reset() noexcept
             {
                 destroy();

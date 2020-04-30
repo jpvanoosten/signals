@@ -139,6 +139,17 @@ namespace sig
             struct is_weak_ptr_convertable<T, void_t<decltype(to_weak(std::declval<T>()))>>
                 : is_weak_ptr<decltype(to_weak(std::declval<T>()))>
             {};
+
+            // Primary template for extracting function traits.
+            template<typename Func>
+            struct function_traits;
+
+            template<typename R, typename... Args>
+            struct function_traits<R(Args...)>
+            {
+                using result_type = R;
+            };
+
         } // namespace traits
 
         // Use is_equality_compareable to try to perform the equality check
@@ -654,7 +665,8 @@ namespace sig
 
             virtual opt::optional<void> operator()(Args&&... args) override
             {
-                return (invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...), opt::nullopt);
+                invoke_helper<function_type>::call(m_Func, m_Ptr, std::forward<Args>(args)...);
+                return {};
             }
 
         private:
@@ -757,12 +769,11 @@ namespace sig
                 if (!sp)
                 {
                     this->disconnect();
-                    return {};
                 }
 
                 if (this->connected())
                 {
-                    return (invoke_helper<function_type>::call(m_Func, sp, std::forward<Args>(args)...), opt::nullopt);
+                    invoke_helper<function_type>::call(m_Func, sp, std::forward<Args>(args)...);
                 }
 
                 return {};
@@ -772,11 +783,41 @@ namespace sig
             pointer_type m_Ptr;
             function_type m_Func;
         };
+
+        template<typename T>
+        class slot_iterator_base
+        {
+        public:
+            using iterator_category = std::input_iterator_tag;
+            using value_type = T;
+            using difference_type = std::ptrdiff_t;
+            using pointer = T*;
+            using reference = T&;
+        };
+
+        // Specialization for void return types.
+        template<>
+        class slot_iterator_base<void>
+        {
+        public:
+            using iterator_category = std::input_iterator_tag;
+            using value_type = void;
+            using difference_type = void;
+            using pointer = void;
+            using reference = void;
+        };
+
+        template<typename T>
+        class slot_iterator : public slot_iterator_base<T>
+        {
+            
+        };
+
     } // namespace detail
 
-/**
- * An RAII object that blocks connections until destruction.
- */
+    /**
+     * An RAII object that blocks connections until destruction.
+     */
     class connection_blocker
     {
     public:
@@ -1022,7 +1063,7 @@ namespace sig
 
     private:
         // Signals need to access the state of the slots.
-        template<typename Func>
+        template<typename Func, typename Combiner>
         friend class signal;
 
         // Query the state of the slot.
@@ -1038,14 +1079,38 @@ namespace sig
     template<typename T>
     using slot_ptr = std::shared_ptr<slot<T>>;
 
+    // Default combiner for signals returns an optional value.
+    // The combiner just returns the result of the last connected slot.
+    // If no slots or functions return void, a disengaged optional is returned.
+    template<typename T>
+    class optional_last_value
+    {
+    public:
+        using result_type = opt::optional<T>;
+
+        template<typename InputIterator>
+        result_type operator()(InputIterator first, InputIterator last) const
+        {
+            result_type result;
+            while (first != last)
+            {
+                result_type temp = *first;
+                if (temp)   // Skip disengaged results.
+                    result = temp;
+                ++first;
+            }
+
+            return result;
+        }
+    };
 
     // Primary template for the signal.
-    template<typename Func>
+    template<typename Func, typename Combiner = optional_last_value<typename detail::traits::function_traits<Func>::result_type>>
     class signal;
 
     // Partial specialization taking a callable.
-    template<typename R, typename... Args>
-    class signal<R(Args...)>
+    template<typename R, typename... Args, typename Combiner>
+    class signal<R(Args...), Combiner>
     {
     public:
         using slot_type = slot_ptr<R(Args...)>;
@@ -1053,6 +1118,7 @@ namespace sig
         using cow_type = detail::cow_ptr<list_type>;
         using mutex_type = std::mutex;
         using lock_type = std::unique_lock<mutex_type>;
+        using result_type = typename Combiner::result_type;
 
         signal()
             : m_Blocked(false)
@@ -1083,15 +1149,19 @@ namespace sig
             m_Blocked = other.m_Blocked.load();
         }
 
-        opt::optional<R> operator()(Args... args)
+        result_type operator()(Args... args)
         {
             if ( m_Blocked ) return {};
 
-            opt::optional<R> r;
+            result_type r;
             for (const auto& s : m_Slots.read())
             {
                 // TODO: Combiner
                 r = (*s)(std::forward<Args>(args)...);
+                if (r)
+                {
+                    // 
+                }
             }
 
             return r;
@@ -1109,13 +1179,12 @@ namespace sig
 
         void clear()
         {
-            lock_type
+            lock_type lock(m_SlotMutex);
+            m_Slots->clear();
         }
 
         mutex_type m_SlotMutex;
         cow_type m_Slots;
         std::atomic_bool m_Blocked;
     };
-
-
 } // namespace sig
