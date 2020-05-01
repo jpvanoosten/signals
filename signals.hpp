@@ -38,6 +38,7 @@
 #include <functional>   // for std::reference_wrapper
 #include <memory>       // for std::unique_ptr
 #include <mutex>        // for std::mutex, and std::lock_guard
+#include <tuple>        // for std::tuple, and std::make_tuple
 #include <type_traits>  // for std::decay, and std::enable_if
 #include <utility>      // for std::declval.
 #include <vector>       // for std::vector
@@ -784,33 +785,157 @@ namespace sig
             function_type m_Func;
         };
 
-        template<typename T>
-        class slot_iterator_base
+        // since C++14
+        // @see https://en.cppreference.com/w/cpp/utility/integer_sequence
+        // @see https://gist.github.com/ntessore/dc17769676fb3c6daa1f
+        // Integer sequence is used to unpack a tuple. This is required for the 
+        // slot iterator.
+        template<typename T, T... Ints>
+        struct integer_sequence
+        {
+            using value_type = T;
+            static constexpr std::size_t size()
+            {
+                return sizeof...(Ints);
+            }
+        };
+
+        template<std::size_t... Ints>
+        using index_sequence = integer_sequence<std::size_t, Ints...>;
+
+        template<typename T, std::size_t N, T... Is>
+        struct make_integer_sequence : make_integer_sequence<T, N-1, N-1, Is...>
+        {};
+
+        // Specialization for integer sequences of 0 length.
+        template<typename T, T... Is>
+        struct make_integer_sequence<T, 0, Is...> : integer_sequence<T, Is...>
+        {};
+
+        template<std::size_t N>
+        using make_index_sequence = make_integer_sequence<std::size_t, N>;
+
+        template<typename... T>
+        using index_sequence_for = make_index_sequence<sizeof...(T)>;
+
+        // The slot_iterator is a wrapper for the actual container that 
+        // contains a list of slots to be invoked. When the slot_iterator
+        // is dereferenced, it must invoke the slot that referenced by the 
+        // current internal iterator and return the result of invoking the function.
+        template<typename T, typename InputIterator, typename... Args>
+        class slot_iterator
         {
         public:
+            // These are required for iterators:
             using iterator_category = std::input_iterator_tag;
             using value_type = T;
             using difference_type = std::ptrdiff_t;
             using pointer = T*;
             using reference = T&;
+
+            using args_type = std::tuple<Args...>;
+            using args_sequence = make_index_sequence<sizeof...(Args)>;
+
+            slot_iterator(InputIterator iter, args_type& args)
+                : m_Iter(iter)
+                , m_Args(args)
+            {}
+
+            slot_iterator(const slot_iterator&) = default;
+            slot_iterator(slot_iterator&&) = default;
+
+            // Pre-increment operator.
+            slot_iterator& operator++()
+            {
+                ++m_Iter;
+                return *this;
+            }
+
+            // Post-increment operator
+            slot_iterator operator++(int)
+            {
+                slot_iterator tmp(*this);
+                ++m_Iter;
+                return tmp;
+            }
+
+            bool operator==(const slot_iterator& other) const
+            {
+                return m_Iter == other.m_Iter;
+            }
+
+            bool operator!=(const slot_iterator& other) const
+            {
+                return m_Iter != other.m_Iter;
+            }
+
+            // Invoke the slot referenced by the internal iterator.
+            opt::optional<T> operator*()
+            {
+                return (*m_Iter)(std::get<args_sequence>(m_Args)...);
+            }
+
+        private:
+            InputIterator m_Iter;
+            args_type& m_Args;
         };
 
-        // Specialization for void return types.
-        template<>
-        class slot_iterator_base<void>
+        // Partial Specialization for void return types.
+        template<typename InputIterator, typename... Args>
+        class slot_iterator<void, InputIterator, Args...>
         {
         public:
             using iterator_category = std::input_iterator_tag;
             using value_type = void;
-            using difference_type = void;
+            using difference_type = std::ptrdiff_t;
             using pointer = void;
             using reference = void;
-        };
 
-        template<typename T>
-        class slot_iterator : public slot_iterator_base<T>
-        {
-            
+            using args_type = std::tuple<Args...>;
+            using args_sequence = make_index_sequence<sizeof...(Args)>;
+
+            slot_iterator(InputIterator iter, args_type& args)
+                : m_Iter(iter)
+                , m_Args(args)
+            {}
+
+            slot_iterator(const slot_iterator&) = default;
+            slot_iterator(slot_iterator&&) = default;
+
+            // Pre-increment operator.
+            slot_iterator& operator++()
+            {
+                ++m_Iter;
+                return *this;
+            }
+
+            // Post-increment operator
+            slot_iterator operator++(int)
+            {
+                slot_iterator tmp(*this);
+                ++m_Iter;
+                return tmp;
+            }
+
+            bool operator==(const slot_iterator& other) const
+            {
+                return m_Iter == other.m_Iter;
+            }
+
+            bool operator!=(const slot_iterator& other) const
+            {
+                return m_Iter != other.m_Iter;
+            }
+
+            opt::optional<void> operator*()
+            {
+                (*m_Iter)(std::get<args_sequence>(m_Args)...);
+                return {};
+            }
+
+        private:
+            InputIterator m_Iter;
+            args_type& m_Args;
         };
 
     } // namespace detail
@@ -1149,22 +1274,15 @@ namespace sig
             m_Blocked = other.m_Blocked.load();
         }
 
-        result_type operator()(Args... args)
+        result_type operator()(Args... _args)
         {
             if ( m_Blocked ) return {};
 
-            result_type r;
-            for (const auto& s : m_Slots.read())
-            {
-                // TODO: Combiner
-                r = (*s)(std::forward<Args>(args)...);
-                if (r)
-                {
-                    // 
-                }
-            }
+            auto args = std::make_tuple(std::forward<Args>(_args)...);
+            const auto& slots = m_Slots.read();
 
-            return r;
+            using iterator = detail::slot_iterator<R, list_type::iterator, Args...>;
+            return Combiner()(iterator(slots.begin(), args), iterator(slots.end(), args));
         }
 
     private:
