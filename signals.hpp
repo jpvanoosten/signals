@@ -489,14 +489,14 @@ namespace sig
                 m_Blocked = false;
             }
 
-        protected:
-            virtual void do_disconnect()
-            {}
-
             std::size_t& index()
             {
                 return m_Index;
             }
+
+        protected:
+            virtual void do_disconnect()
+            {}
 
         private:
             std::size_t m_Index;
@@ -872,14 +872,22 @@ namespace sig
             // Invoke the slot referenced by the internal iterator.
             opt::optional<T> operator*()
             {
-                return (*m_Iter)(std::get<args_sequence>(m_Args)...);
+                return do_invoke(args_sequence());
             }
 
         private:
+            template<std::size_t... Is>
+            constexpr opt::optional<T> do_invoke(index_sequence<Is...>)
+            {
+                // Unpack tuple arguments and invoke slot.
+                return (*m_Iter)(std::get<Is>(m_Args)...);
+            }
+
             InputIterator m_Iter;
             args_type& m_Args;
         };
 
+#if 0 // I don't think this specialization is needed. The slots already take care of void return types.
         // Partial Specialization for void return types.
         template<typename InputIterator, typename... Args>
         class slot_iterator<void, InputIterator, Args...>
@@ -929,170 +937,24 @@ namespace sig
 
             opt::optional<void> operator*()
             {
-                (*m_Iter)(std::get<args_sequence>(m_Args)...);
-                return {};
+                return do_invoke(args_sequence());
             }
 
         private:
+            template<std::size_t... Is>
+            constexpr opt::optional<void> do_invoke(index_sequence<Is...>)
+            {
+                // Unpack tuple arguments and invoke slot.
+                (*m_Iter)(std::get<Is>(m_Args)...);
+                return {};
+            }
+
             InputIterator m_Iter;
             args_type& m_Args;
         };
+#endif
 
     } // namespace detail
-
-    /**
-     * An RAII object that blocks connections until destruction.
-     */
-    class connection_blocker
-    {
-    public:
-        connection_blocker() noexcept = default;
-        ~connection_blocker() noexcept
-        {
-            release();
-        }
-
-        connection_blocker(const connection_blocker&) noexcept = delete;
-        connection_blocker(connection_blocker&& c) noexcept
-            : m_Slot{ std::move(c.m_Slot) }
-        {}
-
-        connection_blocker& operator=(const connection_blocker&) = delete;
-        connection_blocker& operator=(connection_blocker&& c) noexcept
-        {
-            release();
-            m_Slot.swap(c.m_Slot);
-            return *this;
-        }
-
-    private:
-        friend class connection;
-        explicit connection_blocker(std::weak_ptr<detail::slot_state> slot) noexcept
-            : m_Slot{ std::move(slot) }
-        {
-            if (auto s = m_Slot.lock())
-            {
-                s->block();
-            }
-        }
-
-        void release() noexcept
-        {
-            if (auto s = m_Slot.lock())
-            {
-                s->unblock();
-            }
-        }
-
-        std::weak_ptr<detail::slot_state> m_Slot;
-    };
-
-    /**
-     * Connection object allows for managing slot connections.
-     */
-    class connection
-    {
-    public:
-        connection() noexcept = default;
-        virtual ~connection() = default;
-
-        connection(const connection&) noexcept = default;
-        connection(connection&&) noexcept = default;
-        connection& operator=(const connection&) noexcept = default;
-        connection& operator=(connection&&) noexcept = default;
-
-        bool valid() const noexcept
-        {
-            return !m_Slot.expired();
-        }
-
-        bool connected() const noexcept
-        {
-            const auto s = m_Slot.lock();
-            return s && s->connected();
-        }
-
-        bool disconnect() noexcept
-        {
-            auto s = m_Slot.lock();
-            return s && s->disconnect();
-        }
-
-        bool blocked() const noexcept
-        {
-            const auto s = m_Slot.lock();
-            return s && s->blocked();
-        }
-
-        void block() noexcept
-        {
-            if (auto s = m_Slot.lock())
-            {
-                s->block();
-            }
-        }
-
-        void unblock() noexcept
-        {
-            if (auto s = m_Slot.lock())
-            {
-                s->unblock();
-            }
-        }
-
-        connection_blocker blocker() const noexcept
-        {
-            return connection_blocker(m_Slot);
-        }
-
-    protected:
-        explicit connection(std::weak_ptr<detail::slot_state> s) noexcept
-            : m_Slot{ std::move(s) }
-        {}
-
-        std::weak_ptr<detail::slot_state> m_Slot;
-    };
-
-    /**
-     * An RAII version of connection which disconnects it's slot on destruction.
-     */
-    class scoped_connection : public connection
-    {
-    public:
-        scoped_connection() = default;
-        virtual ~scoped_connection() override
-        {
-            disconnect();
-        }
-
-        scoped_connection(const connection& c) noexcept
-            : connection(c)
-        {}
-
-        scoped_connection(connection&& c) noexcept
-            : connection(std::move(c))
-        {}
-
-        scoped_connection(const scoped_connection&) noexcept = delete;
-
-        scoped_connection(scoped_connection&& s) noexcept
-            : connection(std::move(s.m_Slot))
-        {}
-
-        scoped_connection& operator=(const scoped_connection&) noexcept = delete;
-
-        scoped_connection& operator=(scoped_connection&& s) noexcept
-        {
-            disconnect();
-            m_Slot.swap(s.m_Slot);
-            return *this;
-        }
-
-    private:
-        explicit scoped_connection(std::weak_ptr<detail::slot_state> s) noexcept
-            : connection(std::move(s))
-        {}
-    };
 
     // Primary slot template
     template<typename Func>
@@ -1180,6 +1042,33 @@ namespace sig
             return !(s1 == s2);
         }
 
+        bool connected() const noexcept
+        {
+            return m_pImpl && m_pImpl->connected();
+        }
+
+        bool disconnect() noexcept
+        {
+            return m_pImpl && m_pImpl->disconnect();
+        }
+
+        bool blocked() const noexcept
+        {
+            return m_pImpl && m_pImpl->blocked();
+        }
+
+        void block() noexcept
+        {
+            if ( m_pImpl ) 
+                m_pImpl->block();
+        }
+
+        void unblock() noexcept
+        {
+            if ( m_pImpl )
+                m_pImpl->unblock();
+        }
+
         // Invoke the slot.
         opt::optional<R> operator()(Args&&... args)
         {
@@ -1190,6 +1079,11 @@ namespace sig
         // Signals need to access the state of the slots.
         template<typename Func, typename Combiner>
         friend class signal;
+
+        std::size_t& index()
+        {
+            return m_pImpl->index();
+        }
 
         // Query the state of the slot.
         constexpr detail::slot_state& state()
@@ -1204,9 +1098,181 @@ namespace sig
     template<typename T>
     using slot_ptr = std::shared_ptr<slot<T>>;
 
+    // Weak pointer to a slot.
+    template<typename T>
+    using slot_wptr = std::weak_ptr<slot<T>>;
+
+    /**
+     * An RAII object that blocks connections until destruction.
+     */
+    template<typename Func>
+    class connection_blocker
+    {
+    public:
+        using slot_type = slot_wptr<Func>;
+
+        connection_blocker() noexcept = default;
+        ~connection_blocker() noexcept
+        {
+            release();
+        }
+
+        connection_blocker(const connection_blocker&) noexcept = delete;
+        connection_blocker(connection_blocker&& c) noexcept
+            : m_Slot{ std::move(c.m_Slot) }
+        {}
+
+        connection_blocker& operator=(const connection_blocker&) = delete;
+        connection_blocker& operator=(connection_blocker&& c) noexcept
+        {
+            release();
+            m_Slot = std::move(c.m_Slot);
+            return *this;
+        }
+
+    private:
+        template<typename Func>
+        friend class connection;
+
+        explicit connection_blocker(slot_type slot) noexcept
+            : m_Slot{ std::move(slot) }
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->block();
+            }
+        }
+
+        void release() noexcept
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->unblock();
+            }
+        }
+
+        slot_type m_Slot;
+    };
+
+    /**
+     * Connection object allows for managing slot connections.
+     */
+    template<typename Func>
+    class connection
+    {
+    public:
+        using slot_type = slot_wptr<Func>;
+
+        connection() noexcept = default;
+        virtual ~connection() = default;
+
+        connection(const connection&) noexcept = default;
+        connection(connection&&) noexcept = default;
+        connection& operator=(const connection&) noexcept = default;
+        connection& operator=(connection&&) noexcept = default;
+
+        bool valid() const noexcept
+        {
+            return !m_Slot.expired();
+        }
+
+        bool connected() const noexcept
+        {
+            const auto s = m_Slot.lock();
+            return s && s->connected();
+        }
+
+        bool disconnect() noexcept
+        {
+            auto s = m_Slot.lock();
+            return s && s->disconnect();
+        }
+
+        bool blocked() const noexcept
+        {
+            const auto s = m_Slot.lock();
+            return s && s->blocked();
+        }
+
+        void block() noexcept
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->block();
+            }
+        }
+
+        void unblock() noexcept
+        {
+            if (auto s = m_Slot.lock())
+            {
+                s->unblock();
+            }
+        }
+
+        connection_blocker blocker() const noexcept
+        {
+            return connection_blocker(m_Slot);
+        }
+
+    protected:
+        template<typename Func, typename Combiner>
+        friend class signal;
+
+        explicit connection(slot_type s) noexcept
+            : m_Slot{ std::move(s) }
+        {}
+
+        slot_type m_Slot;
+    };
+
+    /**
+     * An RAII version of connection which disconnects it's slot on destruction.
+     */
+    template<typename Func>
+    class scoped_connection : public connection<Func>
+    {
+    public:
+        using slot_type = slot_wptr<Func>;
+
+        scoped_connection() = default;
+        virtual ~scoped_connection() override
+        {
+            disconnect();
+        }
+
+        scoped_connection(const connection& c) noexcept
+            : connection(c)
+        {}
+
+        scoped_connection(connection&& c) noexcept
+            : connection(std::move(c))
+        {}
+
+        scoped_connection(const scoped_connection&) noexcept = delete;
+
+        scoped_connection(scoped_connection&& s) noexcept
+            : connection(std::move(s.m_Slot))
+        {}
+
+        scoped_connection& operator=(const scoped_connection&) noexcept = delete;
+
+        scoped_connection& operator=(scoped_connection&& c) noexcept
+        {
+            disconnect();
+            m_Slot = std::move(c.m_Slot);
+            return *this;
+        }
+
+    private:
+        explicit scoped_connection(slot_type s) noexcept
+            : connection(std::move(s))
+        {}
+    };
+
     // Default combiner for signals returns an optional value.
     // The combiner just returns the result of the last connected slot.
-    // If no slots or functions return void, a disengaged optional is returned.
+    // If no slots or functions returns void, a disengaged optional is returned.
     template<typename T>
     class optional_last_value
     {
@@ -1274,6 +1340,45 @@ namespace sig
             m_Blocked = other.m_Blocked.load();
         }
 
+        // Connect a slot with a callable function object.
+        template<typename Func>
+        connection<Func> connect(Func&& f)
+        {
+            slot_type s = slot_type(new slot<Func>(std::forward<Func>(f)));
+            add_slot(s);
+            return connection(s);
+        }
+
+        // Connect a slot with a pointer to member function
+        // or pointer to member data.
+        template<typename Func, typename Ptr>
+        connection<Func> connect(Func&& f, Ptr&& p)
+        {
+            slot_type s = slot_type(new slot<Func>(std::forward<Func>(f), std::forward<Ptr>(p)));
+            add_slot(s);
+            return connection(s);
+        }
+
+        // Disconnect any slots that are bound to the function object.
+        // Returns the number of slots that were disconnected.
+        template<typename Func>
+        std::size_t disconnect(Func&& f)
+        {
+            // Create a temporary slot for comparison.
+            auto slot = slot<Func>(std::forward<Func>(func));
+            return remove_slot(slot);
+        }
+
+        // Disconnect any slots that are bound to the function object.
+        // Returns the number of slots that were disconnected.
+        template<typename Func, typename Ptr>
+        std::size_t disconnect(Func&& f, Ptr&& ptr)
+        {
+            // Create a temporary slot for comparison.
+            auto slot = slot<Func>(std::forward<Func>(func), std::forward<Ptr>(ptr));
+            return remove_slot(slot);
+        }
+
         result_type operator()(Args... _args)
         {
             if ( m_Blocked ) return {};
@@ -1286,6 +1391,7 @@ namespace sig
         }
 
     private:
+
         void add_slot(slot_type&& s)
         {
             lock_type lock(m_SlotMutex);
@@ -1293,6 +1399,32 @@ namespace sig
             auto& slots = m_Slots.write();
             s->state().index() = slots.size();
             slots.push_back(std::move(s));
+        }
+
+        template<typename Func>
+        size_t remove_slot(slot<Func>& slot)
+        {
+            // Get a modifiable copy of the slot list.
+            auto& slots = m_Slots.write();
+
+            std::size_t count = 0;   // The number of slots that were removed.
+            std::size_t i = 0;       // Slot index
+            while (i < slots.size())
+            {
+                auto& s = *slots[i];
+                if (s == slot)
+                {
+                    std::swap(slots[i], slots.back());
+                    slots[i]->index() = i;
+                    slots.pop_back();
+                    ++count;
+                }
+                else
+                {
+                    ++i;
+                }
+            }
+            return count;
         }
 
         void clear()
