@@ -16,7 +16,7 @@ set( HEADER_FILES
     ../optional.hpp
 )
 
-add_executable( signal_tests cow_tests.cpp slot_tests.cpp ${HEADER_FILES} )
+add_executable( signal_tests cow_tests.cpp slot_tests.cpp signal_tests.cpp ${HEADER_FILES} )
 target_link_libraries( signal_tests gtest gtest_main )
 target_include_directories( signal_tests 
     PUBLIC ../

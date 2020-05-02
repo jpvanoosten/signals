@@ -362,7 +362,7 @@ namespace sig
             T& write()
             {
                 detach();
-                return *m_Ptr
+                return *m_Ptr;
             }
 
             template<typename U>
@@ -887,8 +887,6 @@ namespace sig
             args_type& m_Args;
         };
 
-#if 0 // I don't think this specialization is needed. The slots already take care of void return types.
-        // Partial Specialization for void return types.
         template<typename InputIterator, typename... Args>
         class slot_iterator<void, InputIterator, Args...>
         {
@@ -952,8 +950,6 @@ namespace sig
             InputIterator m_Iter;
             args_type& m_Args;
         };
-#endif
-
     } // namespace detail
 
     // Primary slot template
@@ -964,9 +960,9 @@ namespace sig
     template<typename R, typename... Args>
     class slot<R(Args...)>
     {
-    public:
         using impl = detail::slot_impl<R, Args...>;
 
+    public:
         // Default constructor.
         constexpr slot() noexcept = default;
 
@@ -1131,7 +1127,7 @@ namespace sig
         }
 
     private:
-        template<typename Func>
+        template<typename>
         friend class connection;
 
         explicit connection_blocker(slot_type slot) noexcept
@@ -1210,13 +1206,13 @@ namespace sig
             }
         }
 
-        connection_blocker blocker() const noexcept
+        connection_blocker<Func> blocker() const noexcept
         {
-            return connection_blocker(m_Slot);
+            return connection_blocker<Func>(m_Slot);
         }
 
     protected:
-        template<typename Func, typename Combiner>
+        template<typename, typename>
         friend class signal;
 
         explicit connection(slot_type s) noexcept
@@ -1233,40 +1229,41 @@ namespace sig
     class scoped_connection : public connection<Func>
     {
     public:
+        using base = connection<Func>;
         using slot_type = slot_wptr<Func>;
 
         scoped_connection() = default;
         virtual ~scoped_connection() override
         {
-            disconnect();
+            this->disconnect();
         }
 
-        scoped_connection(const connection& c) noexcept
-            : connection(c)
+        scoped_connection(const base& c) noexcept
+            : base(c)
         {}
 
-        scoped_connection(connection&& c) noexcept
-            : connection(std::move(c))
+        scoped_connection(base&& c) noexcept
+            : base(std::move(c))
         {}
 
         scoped_connection(const scoped_connection&) noexcept = delete;
 
         scoped_connection(scoped_connection&& s) noexcept
-            : connection(std::move(s.m_Slot))
+            : base(std::move(s.m_Slot))
         {}
 
         scoped_connection& operator=(const scoped_connection&) noexcept = delete;
 
         scoped_connection& operator=(scoped_connection&& c) noexcept
         {
-            disconnect();
-            m_Slot = std::move(c.m_Slot);
+            this->disconnect();
+            this->m_Slot = std::move(c.m_Slot);
             return *this;
         }
 
     private:
         explicit scoped_connection(slot_type s) noexcept
-            : connection(std::move(s))
+            : base(std::move(s))
         {}
     };
 
@@ -1305,7 +1302,9 @@ namespace sig
     {
     public:
         using slot_type = slot_ptr<R(Args...)>;
+        using connection_type = connection<R(Args...)>;
         using list_type = std::vector<slot_type>;
+        using list_iterator = typename list_type::iterator;
         using cow_type = detail::cow_ptr<list_type>;
         using mutex_type = std::mutex;
         using lock_type = std::unique_lock<mutex_type>;
@@ -1342,21 +1341,23 @@ namespace sig
 
         // Connect a slot with a callable function object.
         template<typename Func>
-        connection<Func> connect(Func&& f)
+        connection_type connect(Func&& f)
         {
-            slot_type s = slot_type(new slot<Func>(std::forward<Func>(f)));
-            add_slot(s);
-            return connection(s);
+            slot_type s = slot_type(new slot<R(Args...)>(std::forward<Func>(f)));
+            connection_type c(s);
+            add_slot(std::move(s));
+            return c;
         }
 
         // Connect a slot with a pointer to member function
         // or pointer to member data.
         template<typename Func, typename Ptr>
-        connection<Func> connect(Func&& f, Ptr&& p)
+        connection_type connect(Func&& f, Ptr&& p)
         {
             slot_type s = slot_type(new slot<Func>(std::forward<Func>(f), std::forward<Ptr>(p)));
-            add_slot(s);
-            return connection(s);
+            connection_type c(s);
+            add_slot(std::move(s));
+            return c;
         }
 
         // Disconnect any slots that are bound to the function object.
@@ -1365,8 +1366,8 @@ namespace sig
         std::size_t disconnect(Func&& f)
         {
             // Create a temporary slot for comparison.
-            auto slot = slot<Func>(std::forward<Func>(func));
-            return remove_slot(slot);
+            auto s = slot<Func>(std::forward<Func>(f));
+            return remove_slot(s);
         }
 
         // Disconnect any slots that are bound to the function object.
@@ -1375,8 +1376,8 @@ namespace sig
         std::size_t disconnect(Func&& f, Ptr&& ptr)
         {
             // Create a temporary slot for comparison.
-            auto slot = slot<Func>(std::forward<Func>(func), std::forward<Ptr>(ptr));
-            return remove_slot(slot);
+            auto s = slot<Func>(std::forward<Func>(f), std::forward<Ptr>(ptr));
+            return remove_slot(s);
         }
 
         result_type operator()(Args... _args)
@@ -1384,9 +1385,9 @@ namespace sig
             if ( m_Blocked ) return {};
 
             auto args = std::make_tuple(std::forward<Args>(_args)...);
-            const auto& slots = m_Slots.read();
+            auto& slots = m_Slots.read();
 
-            using iterator = detail::slot_iterator<R, list_type::iterator, Args...>;
+            using iterator = detail::slot_iterator<R, list_iterator, Args...>;
             return Combiner()(iterator(slots.begin(), args), iterator(slots.end(), args));
         }
 
