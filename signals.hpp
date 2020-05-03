@@ -804,7 +804,7 @@ namespace sig
         using index_sequence = integer_sequence<std::size_t, Ints...>;
 
         template<typename T, std::size_t N, T... Is>
-        struct make_integer_sequence : make_integer_sequence<T, N-1, N-1, Is...>
+        struct make_integer_sequence : make_integer_sequence<T, N - 1, N - 1, Is...>
         {};
 
         // Specialization for integer sequences of 0 length.
@@ -880,13 +880,14 @@ namespace sig
             constexpr opt::optional<T> do_invoke(index_sequence<Is...>)
             {
                 // Unpack tuple arguments and invoke slot.
-                return (*m_Iter)(std::get<Is>(m_Args)...);
+                return (**m_Iter)(std::get<Is>(m_Args)...);
             }
 
             InputIterator m_Iter;
             args_type& m_Args;
         };
 
+        // Specialization for void return types.
         template<typename InputIterator, typename... Args>
         class slot_iterator<void, InputIterator, Args...>
         {
@@ -950,12 +951,23 @@ namespace sig
             InputIterator m_Iter;
             args_type& m_Args;
         };
+
+        // Base type for the signal class.
+        // Allows slots to disconnect from a signal.
+        class signal_base
+        {
+        public:
+            virtual ~signal_base() = default;
+            virtual void remove_slot(std::size_t i) = 0;
+        };
+
     } // namespace detail
 
     // Primary slot template
     template<typename Func>
     class slot;
 
+    // TODO: Refactor slot to derive from detail::slot_state
     // Specialization for function objects.
     template<typename R, typename... Args>
     class slot<R(Args...)>
@@ -964,39 +976,52 @@ namespace sig
 
     public:
         // Default constructor.
-        constexpr slot() noexcept = default;
+        constexpr slot() noexcept
+            : m_pImpl{ nullptr }
+            , m_pSignal{ nullptr }
+        {}
 
         // Slot that takes a function object.
         template<typename Func>
-        slot(Func&& func)
+        slot(Func&& func, detail::signal_base* signal = nullptr)
             : m_pImpl{ new detail::slot_func<R, Func, Args...>(std::forward<Func>(func)) }
+            , m_pSignal{ signal }
         {}
 
         // Slot that takes a pointer to member function or pointer to member data.
         template<typename Func, typename Ptr>
-        slot(Func&& func, Ptr&& ptr, detail::traits::enable_if_t<!detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr)
+        slot(Func&& func, Ptr&& ptr, detail::signal_base* signal = nullptr,
+            detail::traits::enable_if_t<!detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr)
             : m_pImpl{ new detail::slot_pmf<R, Func, Ptr, Args...>(std::forward<Func>(func), std::forward<Ptr>(ptr)) }
+            , m_pSignal{ signal }
         {}
 
         template<typename Func, typename Ptr>
-        slot(Func&& func, Ptr&& ptr, detail::traits::enable_if_t<detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr)
+        slot(Func&& func, Ptr&& ptr, detail::signal_base* signal = nullptr,
+            detail::traits::enable_if_t<detail::traits::is_weak_ptr_convertable<Ptr>::value, void*> = nullptr)
             : m_pImpl{ new detail::slot_pmf_tracked<R, Func, decltype(to_weak(std::forward<Ptr>(ptr))), Args...>(std::forward<Func>(func), to_weak(std::forward<Ptr>(ptr))) }
+            , m_pSignal{ signal }
         {}
 
         // Copy constructor.
         slot(const slot& copy)
-            : m_pImpl{ copy->m_pImpl->clone() }
+            : m_pImpl{ copy.m_pImpl->clone() }
+            , m_pSignal{ copy.m_pSignal }
         {}
 
         // Explicit parameterized constructor.
         explicit slot(std::unique_ptr<impl> pImpl)
             : m_pImpl{ pImpl }
+            , m_pSignal{ nullptr }
         {}
 
         // Move constructor.
         slot(slot&& other)
             : m_pImpl{ std::move(other.m_pImpl) }
-        {}
+            , m_pSignal{ other.m_pSignal }
+        {
+            other.m_pSignal = nullptr;
+        }
 
         // Assignment operator.
         slot& operator=(const slot& other)
@@ -1004,6 +1029,7 @@ namespace sig
             if (&other != this)
             {
                 m_pImpl.swap(other.m_pImpl->clone());
+                m_pSignal = other.m_pSignal;
             }
             return *this;
         }
@@ -1012,6 +1038,9 @@ namespace sig
         slot& operator=(slot&& other) noexcept
         {
             m_pImpl = std::move(other.m_pImpl);
+            m_pSignal = other.m_pSignal;
+            other.m_pSignal = nullptr;
+
             return *this;
         }
 
@@ -1045,7 +1074,12 @@ namespace sig
 
         bool disconnect() noexcept
         {
-            return m_pImpl && m_pImpl->disconnect();
+            if (m_pImpl && m_pImpl->disconnect() && m_pSignal)
+            {
+                m_pSignal->remove_slot(m_pImpl->index());
+                return true;
+            }
+            return false;
         }
 
         bool blocked() const noexcept
@@ -1055,25 +1089,30 @@ namespace sig
 
         void block() noexcept
         {
-            if ( m_pImpl ) 
+            if (m_pImpl)
                 m_pImpl->block();
         }
 
         void unblock() noexcept
         {
-            if ( m_pImpl )
+            if (m_pImpl)
                 m_pImpl->unblock();
         }
 
         // Invoke the slot.
         opt::optional<R> operator()(Args&&... args)
         {
-            return (*m_pImpl)(std::forward<Args>(args)...);
+            if (!blocked() && connected())
+            {
+                return (*m_pImpl)(std::forward<Args>(args)...);
+            }
+
+            return {};
         }
 
     private:
         // Signals need to access the state of the slots.
-        template<typename Func, typename Combiner>
+        template<typename, typename>
         friend class signal;
 
         std::size_t& index()
@@ -1088,6 +1127,7 @@ namespace sig
         }
 
         std::unique_ptr<impl> m_pImpl;              // Pointer to implementation
+        detail::signal_base* m_pSignal;             // The signal this slot belongs to.
     };
 
     // Shared pointer to a slot.
@@ -1298,7 +1338,7 @@ namespace sig
 
     // Partial specialization taking a callable.
     template<typename R, typename... Args, typename Combiner>
-    class signal<R(Args...), Combiner>
+    class signal<R(Args...), Combiner> : detail::signal_base
     {
     public:
         using slot_type = slot_ptr<R(Args...)>;
@@ -1335,7 +1375,7 @@ namespace sig
             lock_type lock1(m_SlotMutex, std::defer_lock);
             lock_type lock2(other.m_SlotMutex, std::defer_lock);
             std::lock(lock1, lock2);
-            
+
             m_Slots = std::move(other.m_Slots);
             m_Blocked = other.m_Blocked.load();
         }
@@ -1344,7 +1384,7 @@ namespace sig
         template<typename Func>
         connection_type connect(Func&& f)
         {
-            slot_type s = slot_type(new slot<R(Args...)>(std::forward<Func>(f)));
+            slot_type s = slot_type(new slot<R(Args...)>(std::forward<Func>(f), static_cast<detail::signal_base*>(this)));
             connection_type c(s);
             add_slot(std::move(s));
             return c;
@@ -1355,7 +1395,7 @@ namespace sig
         template<typename Func, typename Ptr>
         connection_type connect(Func&& f, Ptr&& p)
         {
-            slot_type s = slot_type(new slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(p)));
+            slot_type s = slot_type(new slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(p), static_cast<detail::signal_base*>(this)));
             connection_type c(s);
             add_slot(std::move(s));
             return c;
@@ -1383,7 +1423,7 @@ namespace sig
 
         result_type operator()(Args... _args)
         {
-            if ( m_Blocked ) return {};
+            if (m_Blocked) return {};
 
             auto args = std::make_tuple(std::forward<Args>(_args)...);
             const auto& slots = m_Slots.read();
@@ -1393,19 +1433,37 @@ namespace sig
         }
 
     private:
-
+        template <typename>
+        friend class slot;
+        
         void add_slot(slot_type&& s)
         {
             lock_type lock(m_SlotMutex);
-            
+
             auto& slots = m_Slots.write();
             s->state().index() = slots.size();
             slots.push_back(std::move(s));
         }
 
+        // Remove a slot at the given index.
+        virtual void remove_slot(std::size_t i) override
+        {
+            lock_type lock(m_SlotMutex);
+
+            auto& slots = m_Slots.write();
+            if (!slots.empty() && i < slots.size())
+            {
+                std::swap(slots[i], slots.back());
+                slots[i]->index() = i;
+                slots.pop_back();
+            }
+        }
+
         template<typename Func>
         size_t remove_slot(slot<Func>& slot)
         {
+            lock_type lock(m_SlotMutex);
+
             // Get a modifiable copy of the slot list.
             auto& slots = m_Slots.write();
 
