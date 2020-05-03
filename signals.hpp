@@ -1343,6 +1343,7 @@ namespace sig
     public:
         using slot_type = slot_ptr<R(Args...)>;
         using connection_type = connection<R(Args...)>;
+        using scoped_connection_type = scoped_connection<R(Args...)>;
         using list_type = std::vector<slot_type>;
         using list_iterator = typename list_type::const_iterator;
         using cow_type = detail::cow_ptr<list_type>;
@@ -1399,6 +1400,23 @@ namespace sig
             connection_type c(s);
             add_slot(std::move(s));
             return c;
+        }
+
+        // Connect a slot with a callable function object.
+        // Returns a scoped connection.
+        template<typename Func>
+        scoped_connection_type connect_scoped(Func&& f)
+        {
+            return scoped_connection_type(connect<Func>(std::forward<Func>(f)));
+        }
+
+        // Connect a slot with a pointer to member function
+        // or pointer to member data.
+        // Returns a scoped connection.
+        template<typename Func, typename Ptr>
+        scoped_connection_type connect_scoped(Func&& f, Ptr&& p)
+        {
+            return scoped_connection_type(connect<Func>(std::forward<Func>(f), std::forward<Ptr>(ptr)));
         }
 
         // Disconnect any slots that are bound to the function object.
