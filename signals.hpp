@@ -943,7 +943,7 @@ namespace sig
             constexpr opt::optional<void> do_invoke(index_sequence<Is...>)
             {
                 // Unpack tuple arguments and invoke slot.
-                (*m_Iter)(std::get<Is>(m_Args)...);
+                (**m_Iter)(std::get<Is>(m_Args)...);
                 return {};
             }
 
@@ -1304,7 +1304,7 @@ namespace sig
         using slot_type = slot_ptr<R(Args...)>;
         using connection_type = connection<R(Args...)>;
         using list_type = std::vector<slot_type>;
-        using list_iterator = typename list_type::iterator;
+        using list_iterator = typename list_type::const_iterator;
         using cow_type = detail::cow_ptr<list_type>;
         using mutex_type = std::mutex;
         using lock_type = std::unique_lock<mutex_type>;
@@ -1312,6 +1312,7 @@ namespace sig
 
         signal()
             : m_Blocked(false)
+            , m_Slots(new list_type())
         {}
         ~signal() = default;
 
@@ -1354,7 +1355,7 @@ namespace sig
         template<typename Func, typename Ptr>
         connection_type connect(Func&& f, Ptr&& p)
         {
-            slot_type s = slot_type(new slot<Func>(std::forward<Func>(f), std::forward<Ptr>(p)));
+            slot_type s = slot_type(new slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(p)));
             connection_type c(s);
             add_slot(std::move(s));
             return c;
@@ -1366,7 +1367,7 @@ namespace sig
         std::size_t disconnect(Func&& f)
         {
             // Create a temporary slot for comparison.
-            auto s = slot<Func>(std::forward<Func>(f));
+            auto s = slot<R(Args...)>(std::forward<Func>(f));
             return remove_slot(s);
         }
 
@@ -1376,7 +1377,7 @@ namespace sig
         std::size_t disconnect(Func&& f, Ptr&& ptr)
         {
             // Create a temporary slot for comparison.
-            auto s = slot<Func>(std::forward<Func>(f), std::forward<Ptr>(ptr));
+            auto s = slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(ptr));
             return remove_slot(s);
         }
 
@@ -1385,7 +1386,7 @@ namespace sig
             if ( m_Blocked ) return {};
 
             auto args = std::make_tuple(std::forward<Args>(_args)...);
-            auto& slots = m_Slots.read();
+            const auto& slots = m_Slots.read();
 
             using iterator = detail::slot_iterator<R, list_iterator, Args...>;
             return Combiner()(iterator(slots.begin(), args), iterator(slots.end(), args));
