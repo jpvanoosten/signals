@@ -14,9 +14,17 @@ FetchContent_MakeAvailable(googletest)
 set( HEADER_FILES
     ../signals.hpp
     ../optional.hpp
+    tests_common.hpp
 )
 
-add_executable( signal_tests cow_tests.cpp slot_tests.cpp signal_tests.cpp ${HEADER_FILES} )
+set( SOURCE_FILES 
+    cow_tests.cpp
+    signal_tests.cpp
+    slot_tests.cpp
+    tests_common.cpp
+)
+
+add_executable( signal_tests ${SOURCE_FILES}  ${HEADER_FILES} )
 target_link_libraries( signal_tests gtest gtest_main )
 target_include_directories( signal_tests 
     PUBLIC ../
