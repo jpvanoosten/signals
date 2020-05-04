@@ -692,6 +692,11 @@ namespace sig
                 , m_Func{ std::forward<Func>(func) }
             {}
 
+            virtual bool connected() const noexcept override
+            {
+                return !m_Ptr.expired() && slot_state::connected();
+            }
+
             virtual slot_impl<R, Args...>* clone() const override
             {
                 return new slot_pmf_tracked(*this);
@@ -747,6 +752,11 @@ namespace sig
                 : m_Ptr{ std::forward<WeakPtr>(ptr) }
                 , m_Func{ std::forward<Func>(func) }
             {}
+
+            virtual bool connected() const noexcept override
+            {
+                return !m_Ptr.expired() && slot_state::connected();
+            }
 
             virtual slot_impl<void, Args...>* clone() const override
             {
@@ -1416,7 +1426,7 @@ namespace sig
         template<typename Func, typename Ptr>
         scoped_connection_type connect_scoped(Func&& f, Ptr&& p)
         {
-            return scoped_connection_type(connect<Func>(std::forward<Func>(f), std::forward<Ptr>(ptr)));
+            return scoped_connection_type(connect<Func>(std::forward<Func>(f), std::forward<Ptr>(p)));
         }
 
         // Disconnect any slots that are bound to the function object.
@@ -1432,10 +1442,10 @@ namespace sig
         // Disconnect any slots that are bound to the function object.
         // Returns the number of slots that were disconnected.
         template<typename Func, typename Ptr>
-        std::size_t disconnect(Func&& f, Ptr&& ptr)
+        std::size_t disconnect(Func&& f, Ptr&& p)
         {
             // Create a temporary slot for comparison.
-            auto s = slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(ptr));
+            auto s = slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(p));
             return remove_slot(s);
         }
 
@@ -1443,7 +1453,7 @@ namespace sig
         {
             if (m_Blocked) return {};
 
-            auto args = std::make_tuple(std::forward<Args>(_args)...);
+            auto args = std::forward_as_tuple(std::forward<Args>(_args)...);
             const auto& slots = m_Slots.read();
 
             using iterator = detail::slot_iterator<R, list_iterator, Args...>;

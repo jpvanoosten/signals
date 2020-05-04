@@ -2,18 +2,36 @@
 
 void void_func()
 {
-    std::cout << "Function 1" << std::endl;
-    return;
 }
 
 void void_func2()
 {
-    std::cout << "Function 2" << std::endl;
 }
 
-int sum(int i, int j)
+void increment_counter(int& counter)
 {
-    return i + j;
+    ++counter;
 }
+
+double sum(float i, float j)
+{
+    return static_cast<double>(i) + static_cast<double>(j);
+}
+
+double difference(float i, float j)
+{
+    return static_cast<double>(i) - static_cast<double>(j);
+}
+
+double product(float i, float j)
+{
+    return static_cast<double>(i) * static_cast<double>(j);
+}
+
+double quotient(float i, float j)
+{
+    return static_cast<double>(i) / static_cast<double>(j);
+}
+
 
 

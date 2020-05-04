@@ -5,7 +5,14 @@
 
 void void_func();
 void void_func2();
-int sum(int i, int j);
+
+void increment_counter(int& counter);
+
+
+double difference(float i, float j);
+double sum(float i, float j);
+double product(float i, float j);
+double quotient(float i, float j);
 
 class VoidMemberFunc
 {
