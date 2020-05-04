@@ -954,7 +954,7 @@ namespace sig
             constexpr opt::optional<void> do_invoke(index_sequence<Is...>)
             {
                 // Unpack tuple arguments and invoke slot.
-                (**m_Iter)(std::get<Is>(m_Args)...);
+                (**m_Iter)(std::forward<Args>(std::get<Is>(m_Args))...);
                 return {};
             }
 
@@ -1449,15 +1449,15 @@ namespace sig
             return remove_slot(s);
         }
 
-        result_type operator()(Args... _args)
+        result_type operator()(Args&&... args)
         {
             if (m_Blocked) return {};
 
-            auto args = std::forward_as_tuple(std::forward<Args>(_args)...);
+            auto t = std::tuple<Args...>(std::forward<Args>(args)...);
             const auto& slots = m_Slots.read();
 
             using iterator = detail::slot_iterator<R, list_iterator, Args...>;
-            return Combiner()(iterator(slots.begin(), args), iterator(slots.end(), args));
+            return Combiner()(iterator(slots.begin(), t), iterator(slots.end(), t));
         }
 
     private:

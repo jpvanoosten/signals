@@ -13,6 +13,12 @@ void increment_counter(int& counter)
     ++counter;
 }
 
+// Function takes default arguments.
+void default_arguments(int& i, int c)
+{
+    i += c;
+}
+
 double sum(float i, float j)
 {
     return static_cast<double>(i) + static_cast<double>(j);

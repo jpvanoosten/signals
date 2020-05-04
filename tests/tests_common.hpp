@@ -8,6 +8,7 @@ void void_func2();
 
 void increment_counter(int& counter);
 
+void default_arguments(int& i, int c = 1);
 
 double difference(float i, float j);
 double sum(float i, float j);

@@ -108,7 +108,7 @@ TEST(signal, TestCounter)
     EXPECT_EQ(counter, 3);
 
     auto count = s.disconnect(&increment_counter);
-
+    // All 3 slots should be removed.
     EXPECT_EQ(count, 3);
 
     // No slots should be called.
@@ -118,3 +118,136 @@ TEST(signal, TestCounter)
     EXPECT_EQ(counter, 3);
 }
 
+TEST(signal, TestConnectionBlocking)
+{
+    using signal = sig::signal<void(int&)>;
+
+    signal s;
+
+    auto c1 = s.connect(&increment_counter);
+    auto c2 = s.connect(&increment_counter);
+    auto c3 = s.connect(&increment_counter);
+
+    int counter = 0;
+
+    s(counter);
+
+    EXPECT_EQ(counter, 3);
+
+    // Block 2 connections.
+    c1.block();
+    c2.block();
+
+    // Only 1 of the slots should be called.
+    s(counter);
+
+    // Counter only increments once.
+    EXPECT_EQ(counter, 4);
+
+    c1.unblock();
+    c2.unblock();
+
+    s(counter);
+
+    // Should be incremented 3 times again.
+    EXPECT_EQ(counter, 7);
+}
+
+TEST(signal, DefaultArguments)
+{
+    using signal = sig::signal<void(int&)>;
+
+    signal s;
+
+    // Must use a function adapter that calls the function utilizing default arguments.
+    // Can also use std::function to create such a binding.
+    auto func_adapter = [](int& i) { default_arguments(i); };
+
+    // Connect the function adapter to the signal.
+    s.connect(func_adapter);
+
+    int counter = 0;
+
+    s(counter);
+
+    EXPECT_EQ(counter, 1);
+
+    // Remove the slot.
+    s.disconnect(func_adapter);
+
+    s(counter);
+
+    // Counter should remain unchanged.
+    EXPECT_EQ(counter, 1);
+}
+
+TEST(signal, PointerToMemberFunction)
+{
+    using signal = sig::signal<void()>;
+    signal s;
+
+    VoidMemberFunc vmf;
+
+    s.connect(&VoidMemberFunc::DoSomething, &vmf);
+
+    // Function returns opt::optional<void> which is always disengaged.
+    auto res = s();
+
+    EXPECT_FALSE(res);
+}
+
+TEST(signal, PointerToMemberFunctionTracked)
+{
+    using signal = sig::signal<void()>;
+    signal s;
+
+    auto vmf = std::make_shared<VoidMemberFunc>();
+
+    s.connect(&VoidMemberFunc::DoSomething, vmf);
+
+    s();
+
+    // Release smart pointer object.
+    vmf.reset();
+
+    s();
+
+    // The slot should not prevent the shared pointer from being
+    // released.
+    EXPECT_EQ(vmf.use_count(), 0);
+
+}
+
+std::atomic_uint32_t i1;
+
+// Add to the atomic value.
+void add_i(int i)
+{
+    i1 += i;
+}
+
+// Invoke a signal 100 times.
+void invoke_many(sig::signal<void(int)>& s)
+{
+    for( int i = 0; i < 100; ++i )
+    {
+        s(1);
+    }
+}
+
+void test_int(int i)
+{
+    i1 += i;
+}
+
+TEST(signal, InvokeThreaded)
+{
+    using signal = sig::signal<void(int)>;
+
+    signal s;
+    s.connect(add_i);
+
+    invoke_many(s);
+
+    EXPECT_EQ(i1, 100);
+}
