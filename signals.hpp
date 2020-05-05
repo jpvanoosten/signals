@@ -1455,7 +1455,7 @@ namespace sig
             return erase(s);
         }
 
-        result_type operator()(Args&&... args)
+        result_type operator()(Args... args)
         {
             if (m_Blocked) return {};
 

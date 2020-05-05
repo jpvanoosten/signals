@@ -221,34 +221,34 @@ TEST(signal, PointerToMemberFunctionTracked)
 
 }
 
-static std::atomic_uint32_t g_i = 0;
-
 // Add to the atomic value.
-void add_i(int i)
+void atomic_add(std::atomic_uint64_t& i, int j)
 {
-    g_i += i;
+    i += j;
 }
 
+using add_signal = sig::signal<void(std::atomic_uint64_t&, int)>;
+
 // Invoke a signal 100 times.
-void invoke_many(sig::signal<void(int)>& s)
+void invoke_many(std::atomic_uint64_t& counter, add_signal& s)
 {
-    for( int i = 0; i < 100; ++i )
+    for (int i = 0; i < 100; ++i)
     {
-        s(1);
+        s(counter, 1);
     }
 }
 
 TEST(signal, InvokeThreaded)
 {
-    using signal = sig::signal<void(int)>;
+    add_signal s;
+    s.connect(atomic_add);
 
-    signal s;
-    s.connect(add_i);
+    std::atomic_uint64_t i = 0;
 
     std::array<std::thread, 10> threads;
     for (auto& t : threads)
     {
-        t = std::thread(invoke_many, std::ref(s));
+        t = std::thread(invoke_many, std::ref(i), std::ref(s));
     }
 
     for (auto& t : threads)
@@ -256,50 +256,91 @@ TEST(signal, InvokeThreaded)
         t.join();
     }
 
-    EXPECT_EQ(g_i, 1000);
+    EXPECT_EQ(i, 1000);
 }
 
-std::atomic_uint64_t g_j = 0;
-
-void add_j(uint64_t i)
-{
-    g_j += i;
-}
-
-void connect_invoke(sig::signal<void(int)>& s)
+void connect_invoke(std::atomic_uint64_t& counter, add_signal& s)
 {
     for (int i = 0; i < 100; ++i)
     {
-        auto sc = s.connect_scoped(add_j);
+        auto sc = s.connect_scoped(atomic_add);
         for (int j = 0; j < 100; ++j)
         {
-            s(1);
+            s(counter, 1);
         }
     }
 }
 
 TEST(signal, ThreadedConnect)
 {
-    using signal = sig::signal<void(int)>;
+    add_signal s;
 
-    signal s;
+    std::atomic_uint64_t i = 0;
 
-    connect_invoke(s);
+    connect_invoke(i, s);
 
-    s(1);
+    // No more signals should be connected.
+    s(i, 1);
 
-    EXPECT_EQ( g_j, 10000);
+    EXPECT_EQ(i, 10000);
 
-    g_j = 0;
+    i = 0;
 
     std::array<std::thread, 10> threads;
     for (auto& t : threads)
     {
-        t = std::thread(connect_invoke, std::ref(s));
+        t = std::thread(connect_invoke, std::ref(i), std::ref(s));
     }
 
     for (auto& t : threads)
     {
         t.join();
     }
+}
+
+void connect_cross(add_signal& s1, add_signal& s2, std::atomic_uint64_t& counter, std::atomic_int& go)
+{
+    auto cross = s1.connect([&](std::atomic_uint64_t& c, int i)
+    {
+        if (i & 1)
+        {
+            atomic_add(c, i);
+        }
+        else
+        {
+            s2(c, i + 1);
+        }
+    });
+
+    go++;
+    while (go != 3)
+        std::this_thread::yield();
+
+    for (int i = 0; i < 1000000; ++i)
+    {
+        s1(counter, i);
+    }
+}
+// Test for deadlocks in cross-emission situation.
+TEST(signal, ThreadedCrossed)
+{
+    std::atomic_uint64_t i = 0;
+
+    add_signal s1;
+    add_signal s2;
+
+    std::atomic_int go = 0;
+
+    std::thread t1(connect_cross, std::ref(s1), std::ref(s2), std::ref(i), std::ref(go));
+    std::thread t2(connect_cross, std::ref(s2), std::ref(s1), std::ref(i), std::ref(go));
+
+    while ( go != 2 )
+        std::this_thread::yield();
+
+    go++;
+
+    t1.join();
+    t2.join();
+
+    EXPECT_EQ(i, 1000000000000ll);
 }
