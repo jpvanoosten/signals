@@ -1084,11 +1084,12 @@ namespace sig
 
         bool disconnect() noexcept
         {
-            if (m_pImpl && m_pImpl->disconnect() && m_pSignal)
+            if (m_pImpl && m_pSignal && m_pImpl->disconnect() )
             {
                 m_pSignal->remove_slot(m_pImpl->index());
                 return true;
             }
+
             return false;
         }
 
@@ -1454,6 +1455,8 @@ namespace sig
             if (m_Blocked) return {};
 
             auto t = std::tuple<Args...>(std::forward<Args>(args)...);
+
+            lock_type lock(m_SlotMutex);
             const auto& slots = m_Slots.read();
 
             using iterator = detail::slot_iterator<R, list_iterator, Args...>;

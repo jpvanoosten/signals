@@ -1,11 +1,14 @@
 #include "tests_common.hpp"
+#include <iostream>
 
 void void_func()
 {
+    std::cout << "void_func()" << std::endl;
 }
 
 void void_func2()
 {
+    std::cout << "void_func2()" << std::endl;
 }
 
 void increment_counter(int& counter)

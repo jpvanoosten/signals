@@ -1,7 +1,10 @@
 #include "tests_common.hpp"
 #include <gtest/gtest.h>
 
+#include <array>
+#include <atomic>
 #include <iostream>
+#include <thread>
 
 using namespace std::placeholders;
 
@@ -218,12 +221,12 @@ TEST(signal, PointerToMemberFunctionTracked)
 
 }
 
-std::atomic_uint32_t i1;
+static std::atomic_uint32_t g_i = 0;
 
 // Add to the atomic value.
 void add_i(int i)
 {
-    i1 += i;
+    g_i += i;
 }
 
 // Invoke a signal 100 times.
@@ -235,11 +238,6 @@ void invoke_many(sig::signal<void(int)>& s)
     }
 }
 
-void test_int(int i)
-{
-    i1 += i;
-}
-
 TEST(signal, InvokeThreaded)
 {
     using signal = sig::signal<void(int)>;
@@ -247,7 +245,61 @@ TEST(signal, InvokeThreaded)
     signal s;
     s.connect(add_i);
 
-    invoke_many(s);
+    std::array<std::thread, 10> threads;
+    for (auto& t : threads)
+    {
+        t = std::thread(invoke_many, std::ref(s));
+    }
 
-    EXPECT_EQ(i1, 100);
+    for (auto& t : threads)
+    {
+        t.join();
+    }
+
+    EXPECT_EQ(g_i, 1000);
+}
+
+std::atomic_uint64_t g_j = 0;
+
+void add_j(uint64_t i)
+{
+    g_j += i;
+}
+
+void connect_invoke(sig::signal<void(int)>& s)
+{
+    for (int i = 0; i < 100; ++i)
+    {
+        auto sc = s.connect_scoped(add_j);
+        for (int j = 0; j < 100; ++j)
+        {
+            s(1);
+        }
+    }
+}
+
+TEST(signal, ThreadedConnect)
+{
+    using signal = sig::signal<void(int)>;
+
+    signal s;
+
+    connect_invoke(s);
+
+    s(1);
+
+    EXPECT_EQ( g_j, 10000);
+
+    g_j = 0;
+
+    std::array<std::thread, 10> threads;
+    for (auto& t : threads)
+    {
+        t = std::thread(connect_invoke, std::ref(s));
+    }
+
+    for (auto& t : threads)
+    {
+        t.join();
+    }
 }
