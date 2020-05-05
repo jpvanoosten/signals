@@ -66,6 +66,11 @@ namespace sig
         return s;
     }
 
+    // Forward declare signal class so that it can be 
+    // a friend of a class in a nested namespace.
+    template<typename, typename>
+    class signal;
+
     namespace detail
     {
         namespace traits
@@ -242,7 +247,7 @@ namespace sig
          * A copy-on-write template class to avoid unnecessary copies of
          * data unless the data will be modified. This greatly improves
          * the performance of the signal class in a multi-threaded environment
-         * since copies only require a shared pointer copy.
+         * since read-only copies only require a shared pointer copy.
          * The copy-on-write pointer has similar semantics to shared pointers.
          *
          * @see API Design for C++, Martin Reddy (Elsevier, 2011).
@@ -351,14 +356,12 @@ namespace sig
             }
 
             // Get read-only reference to internal value.
-            // No copy is made of the underlying object.
             const T& read() const
             {
                 return *m_Ptr;
             }
 
             // Get writable reference to internal value.
-            // A copy will be created of the underlying type.
             T& write()
             {
                 detach();
@@ -412,7 +415,7 @@ namespace sig
         }
 
         /**
-         * Slot state is used as both a non-template base class for slots
+         * Slot state is used as both a non-template base class for slot_impl
          * as well as storing connection information about the slot.
          */
         class slot_state
@@ -962,13 +965,25 @@ namespace sig
             args_type& m_Args;
         };
 
+        // Base type for slots.
+        // This is required for signal_base to be able to pass
+        // a slot to a signal through the signal_base interface.
+        class slot_base
+        {
+            // The signal class needs access to the index method.
+            template<typename, typename>
+            friend class sig::signal;
+
+            virtual std::size_t& index() = 0;
+        };
+
         // Base type for the signal class.
         // Allows slots to disconnect from a signal.
         class signal_base
         {
         public:
             virtual ~signal_base() = default;
-            virtual void remove_slot(std::size_t i) = 0;
+            virtual void remove_slot(slot_base& slot) = 0;
         };
 
     } // namespace detail
@@ -980,7 +995,7 @@ namespace sig
     // TODO: Refactor slot to derive from detail::slot_state
     // Specialization for function objects.
     template<typename R, typename... Args>
-    class slot<R(Args...)>
+    class slot<R(Args...)> : detail::slot_base
     {
         using impl = detail::slot_impl<R, Args...>;
 
@@ -1086,7 +1101,7 @@ namespace sig
         {
             if (m_pImpl && m_pSignal && m_pImpl->disconnect() )
             {
-                m_pSignal->remove_slot(m_pImpl->index());
+                m_pSignal->remove_slot(*this);
                 return true;
             }
 
@@ -1126,7 +1141,7 @@ namespace sig
         template<typename, typename>
         friend class signal;
 
-        std::size_t& index()
+        virtual std::size_t& index() override
         {
             return m_pImpl->index();
         }
@@ -1437,7 +1452,7 @@ namespace sig
         {
             // Create a temporary slot for comparison.
             auto s = slot<R(Args...)>(std::forward<Func>(f));
-            return remove_slot(s);
+            return erase(s);
         }
 
         // Disconnect any slots that are bound to the function object.
@@ -1447,7 +1462,7 @@ namespace sig
         {
             // Create a temporary slot for comparison.
             auto s = slot<R(Args...)>(std::forward<Func>(f), std::forward<Ptr>(p));
-            return remove_slot(s);
+            return erase(s);
         }
 
         result_type operator()(Args&&... args)
@@ -1456,8 +1471,9 @@ namespace sig
 
             auto t = std::tuple<Args...>(std::forward<Args>(args)...);
 
-            lock_type lock(m_SlotMutex);
-            const auto& slots = m_Slots.read();
+            // Get a read-only copy of the slots.
+            const auto slots_copy = read_slots();
+            const auto& slots = slots_copy.read();
 
             using iterator = detail::slot_iterator<R, list_iterator, Args...>;
             return Combiner()(iterator(slots.begin(), t), iterator(slots.end(), t));
@@ -1470,18 +1486,19 @@ namespace sig
         void add_slot(slot_type&& s)
         {
             lock_type lock(m_SlotMutex);
-
             auto& slots = m_Slots.write();
+
             s->state().index() = slots.size();
             slots.push_back(std::move(s));
         }
 
         // Remove a slot at the given index.
-        virtual void remove_slot(std::size_t i) override
+        virtual void remove_slot(detail::slot_base& slot) override
         {
             lock_type lock(m_SlotMutex);
-
+            auto i = slot.index();
             auto& slots = m_Slots.write();
+
             if (!slots.empty() && i < slots.size())
             {
                 std::swap(slots[i], slots.back());
@@ -1490,12 +1507,13 @@ namespace sig
             }
         }
 
+        // Erase all slots that match given slot.
+        // @param slot The slot to match for erasure.
+        // @returns The number of slots that were actually erased.
         template<typename Func>
-        size_t remove_slot(slot<Func>& slot)
+        size_t erase(slot<Func>& slot)
         {
             lock_type lock(m_SlotMutex);
-
-            // Get a modifiable copy of the slot list.
             auto& slots = m_Slots.write();
 
             std::size_t count = 0;   // The number of slots that were removed.
@@ -1522,6 +1540,13 @@ namespace sig
         {
             lock_type lock(m_SlotMutex);
             m_Slots->clear();
+        }
+
+        // Get a copy of the slots for reading.
+        const cow_type read_slots()
+        {
+            lock_type lock(m_SlotMutex);
+            return m_Slots;
         }
 
         mutex_type m_SlotMutex;
