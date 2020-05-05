@@ -468,13 +468,7 @@ namespace sig
 
             bool disconnect() noexcept
             {
-                bool ret = m_Connected.exchange(false);
-                if (ret)
-                {
-                    do_disconnect();
-                }
-
-                return ret;
+                return m_Connected.exchange(false);
             }
 
             bool blocked() const noexcept
@@ -496,10 +490,6 @@ namespace sig
             {
                 return m_Index;
             }
-
-        protected:
-            virtual void do_disconnect()
-            {}
 
         private:
             std::size_t m_Index;
