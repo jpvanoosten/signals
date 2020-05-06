@@ -18,6 +18,7 @@ set( HEADER_FILES
 )
 
 set( SOURCE_FILES 
+    connection_tests.cpp
     cow_tests.cpp
     signal_tests.cpp
     slot_tests.cpp

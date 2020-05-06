@@ -248,3 +248,38 @@ TEST(slot, PartialBind)
     auto res = s(3);
     EXPECT_EQ(res, 15);
 }
+
+struct WithConstant
+{
+    WithConstant(int c)
+    : constant(c)
+    {}
+
+    int add(int i)
+    {
+        return i + constant;
+    }
+
+private:
+    int constant;
+};
+
+void DoDelayedConnect(std::shared_ptr<WithConstant>& wc, sig::signal<int(int)>& sig, sig::slot<int(int)> slot)
+{
+    wc.reset();
+
+    // Connecting a slow with an expired value should result in a disconnected slot.
+    sig::connection<int(int)> c = sig.connect(slot);
+    EXPECT_FALSE(c.connected());
+}
+
+TEST(slot, DeadSlot)
+{
+    // Ensure that calling signal::connect with a slot that has already expired
+    // does not connect the slot.
+    using signal = sig::signal<int(int)>;
+    signal s;
+
+    std::shared_ptr<WithConstant> wc(new WithConstant(7));
+    DoDelayedConnect(wc, s, signal::slot_type(&WithConstant::add, wc));
+}
