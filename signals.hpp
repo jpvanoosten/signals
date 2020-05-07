@@ -823,7 +823,7 @@ namespace sig
 
         // The slot_iterator is a wrapper for the actual container that 
         // contains a list of slots to be invoked. When the slot_iterator
-        // is dereferenced, it must invoke the slot that referenced by the 
+        // is dereferenced, it must invoke the slot that is referenced by the 
         // current internal iterator and return the result of invoking the function.
         template<typename T, typename InputIterator, typename... Args>
         class slot_iterator
@@ -883,7 +883,7 @@ namespace sig
             constexpr opt::optional<T> do_invoke(index_sequence<Is...>)
             {
                 // Unpack tuple arguments and invoke slot.
-                return (**m_Iter)(std::get<Is>(m_Args)...);
+                return (**m_Iter)(std::forward<Args>(std::get<Is>(m_Args))...);
             }
 
             InputIterator m_Iter;
@@ -1509,7 +1509,7 @@ namespace sig
             return erase(s);
         }
 
-        result_type operator()(Args... args)
+        result_type operator()(Args... args) const
         {
             if (m_Blocked) return {};
 
@@ -1587,13 +1587,13 @@ namespace sig
         }
 
         // Get a copy of the slots for reading.
-        const cow_type read_slots()
+        const cow_type read_slots() const
         {
             lock_type lock(m_SlotMutex);
             return m_Slots;
         }
 
-        mutex_type m_SlotMutex;
+        mutable mutex_type m_SlotMutex;
         cow_type m_Slots;
         std::atomic_bool m_Blocked;
     };

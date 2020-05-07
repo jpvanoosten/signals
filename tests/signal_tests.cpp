@@ -3,6 +3,7 @@
 
 #include <array>
 #include <atomic>
+#include <functional>
 #include <iostream>
 #include <thread>
 
@@ -238,6 +239,7 @@ void invoke_many(std::atomic_uint64_t& counter, add_signal& s)
     }
 }
 
+// Test multi-threaded signal emission.
 TEST(signal, InvokeThreaded)
 {
     add_signal s;
@@ -271,6 +273,7 @@ void connect_invoke(std::atomic_uint64_t& counter, add_signal& s)
     }
 }
 
+// Test threaded connection and emission on the same signal.
 TEST(signal, ThreadedConnect)
 {
     add_signal s;
@@ -321,6 +324,7 @@ void connect_cross(add_signal& s1, add_signal& s2, std::atomic_uint64_t& counter
         s1(counter, i);
     }
 }
+
 // Test for deadlocks in cross-emission situation.
 TEST(signal, ThreadedCrossed)
 {
@@ -343,4 +347,147 @@ TEST(signal, ThreadedCrossed)
     t2.join();
 
     EXPECT_EQ(i, 1000000000000ll);
+}
+
+// A combiner that returns the maximum value returned by the slots,
+// or a default constructed value T.
+template<typename T>
+struct max_or_default
+{
+    using result_type = T;
+
+    template<typename InputIterator>
+    typename InputIterator::value_type operator()(InputIterator first, InputIterator last) const
+    {
+        opt::optional<T> max;
+        while (first != last)
+        {
+            opt::optional<T> tmp = *first;
+            if (tmp > max) max = tmp;
+
+            ++first;
+        }
+
+        return max ? *max : T();
+    }
+};
+
+struct make_int
+{
+    make_int(int n, int cn )
+    : N(n)
+    , CN(cn)
+    {}
+
+    int operator()()
+    {
+        return N;
+    }
+
+    int operator()() const
+    {
+        return CN;
+    }
+
+    bool operator==(const make_int& other) const
+    {
+        return N == other.N && CN == other.CN;
+    }
+
+    int N;
+    int CN;
+};
+
+template<int N>
+struct make_increasing_int
+{
+    make_increasing_int()
+        : n(N)
+    {}
+
+    int operator()() const
+    {
+        return n++;
+    }
+
+    mutable int n;
+};
+
+TEST(signal, ZeroArgs)
+{
+    using signal = sig::signal<int(), max_or_default<int>>;
+    
+    make_int i42(42, 41);
+    make_int i2(2, 1);
+    make_int i72(72, 71);
+    make_int i63(63, 63);
+    make_int i62(62, 61);
+
+    {
+        signal s;
+
+        auto c2 = s.connect(i2);
+        auto c72 = s.connect(i72);
+        auto c62 = s.connect(i62);
+        auto c42 = s.connect(i42);
+
+        EXPECT_EQ(s(), 72);
+
+        s.disconnect(i72);
+        EXPECT_EQ(s(), 62);
+
+        c72.disconnect();   // This should do nothing (it's already disconnected)
+        EXPECT_EQ(s(), 62);
+
+        auto c63 = s.connect(i63);
+        EXPECT_EQ(s(), 63);
+
+        s.disconnect(i63);
+        s.disconnect(i62);
+        EXPECT_EQ(s(), 42);
+
+        c42.disconnect();
+        EXPECT_EQ(s(), 2);
+
+        c2.disconnect();
+        EXPECT_EQ(s(), 0);
+    }
+
+    {
+        signal s;
+        
+        auto c2 = s.connect(i2);
+        auto c72 = s.connect(i72);
+        auto c62 = s.connect(i62);
+        auto c42 = s.connect(i42);
+
+        const signal& cs = s;
+        EXPECT_EQ(cs(), 72);
+    }
+
+    {
+        make_increasing_int<7> i7;
+        make_increasing_int<10> i10;
+
+        signal s;
+
+        auto c7 = s.connect(i7);
+        auto c10 = s.connect(i10);
+
+        EXPECT_EQ(s(), 10);
+        EXPECT_EQ(s(), 11);
+    }
+}
+
+TEST(signal, OneArg)
+{
+    using signal = sig::signal<int(int value), max_or_default<int>>;
+
+    signal s;
+
+    s.connect(std::negate<int>());
+    s.connect(std::bind(std::multiplies<int>(), 2, _1));
+
+    EXPECT_EQ(s(1), 2);
+    EXPECT_EQ(s(-1), 1);
 }
