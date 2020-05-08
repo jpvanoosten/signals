@@ -34,9 +34,16 @@ For simplicity, any of these types of function-like objects will be generally re
 
 A `slot` is used to hold any of these types of objects with any number (and types) of arguments and provide the return value of calling the slot (as an optional value).
 
-The `slot` also stores its connection state. A *connected* `slot` is one that has a valid callable object associated with it. It is possible to invoke a disconnected slot. The return value of a disconnected slot is alwasy a *disengaged* [opt::optional] value. See [jpvanoosten/optional] for more information on the optional variable type used in this library.
+The `slot` also stores its connection state. A *connected* `slot` is one that has a valid callable object associated with it. It is possible to invoke a disconnected `slot`. The return value of a disconnected `slot` is alwasy a *disengaged* [opt::optional] value. See [jpvanoosten/optional] for more information on the optional variable type used in this library. The return value of a connected `slot` should be an engaged [opt::optional] value.
 
-A connected `slot` contains a valid *callable*
+### Connection
+
+A `connection` object is used to manage the connection state of a slot within a signal. If a `connection` stores a reference to a valid `slot`, it is in the connected state. The `connection` object can also be used to temporarily *block* a slot, *unblock* the slot, and disconnect the slot from the signal.
+
+### Signal
+
+The `signal` class is probably the most common way of working with the slots & signals. The `signal` is a container for multiple `slots`. The `signal` can be invoked which results in all of the connected slots being invoked.
+
 
 [jpvanoosten/signals]: https://github.com/jpvanoosten/signals
 [sig::signals]: https://github.com/jpvanoosten/signals
