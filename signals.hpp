@@ -31,7 +31,7 @@
 namespace sig
 {
     // An exception of type not_comparable_exception is thrown
-    // if one tries to compare non comparable types (like lambdas).
+    // if one tries to compare non comparable function types.
     class not_comparable_exception : public std::exception
     {};
 

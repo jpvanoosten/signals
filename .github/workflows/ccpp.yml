@@ -1,0 +1,31 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ dev ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Create build directory
+      run: mkdir build
+    - name: Generate build
+      run: |
+        cd build
+        cmake ..
+    - name: Build project
+      run: cmake --build build/
+    - name: Test project
+      run: |
+        cd build
+        ctest
+    - name: Create pull request
+      uses: vsoch/pull-request-action@1.0.6
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PULL_REQUEST_BRANCH: "master"
