@@ -245,7 +245,7 @@ TEST(signal, InvokeThreaded)
     add_signal s;
     s.connect(atomic_add);
 
-    std::atomic_uint64_t i = 0;
+    std::atomic_uint64_t i{0};
 
     std::array<std::thread, 10> threads;
     for (auto& t : threads)
@@ -278,7 +278,7 @@ TEST(signal, ThreadedConnect)
 {
     add_signal s;
 
-    std::atomic_uint64_t i = 0;
+    std::atomic_uint64_t i{0};
 
     connect_invoke(i, s);
 
@@ -328,12 +328,12 @@ void connect_cross(add_signal& s1, add_signal& s2, std::atomic_uint64_t& counter
 // Test for deadlocks in cross-emission situation.
 TEST(signal, ThreadedCrossed)
 {
-    std::atomic_uint64_t i = 0;
+    std::atomic_uint64_t i{0};
 
     add_signal s1;
     add_signal s2;
 
-    std::atomic_int go = 0;
+    std::atomic_int go{0};
 
     std::thread t1(connect_cross, std::ref(s1), std::ref(s2), std::ref(i), std::ref(go));
     std::thread t2(connect_cross, std::ref(s2), std::ref(s1), std::ref(i), std::ref(go));

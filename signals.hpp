@@ -1330,7 +1330,7 @@ namespace sig
 
         connection<Func> release()
         {
-            return connection<Func>(std::move(m_Slot));
+            return connection<Func>(std::move(this->m_Slot));
         }
 
     private:
