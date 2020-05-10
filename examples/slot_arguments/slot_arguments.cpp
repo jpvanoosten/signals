@@ -28,11 +28,11 @@ void print_quotient( float x, float y)
 
 int main()
 {
-    // Defina a signal that takes two floats and returns void.
+    // Define a signal that takes two floats and returns void.
     using signal = sig::signal<void(float, float)>;
     signal s;
 
-    // Connect the hello_world function to the signal.
+    // Connect the functions to the signal.
     s.connect(&print_args);
     s.connect(&print_sum);
     s.connect(&print_product);

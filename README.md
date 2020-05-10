@@ -195,6 +195,262 @@ The quotient is 1.66667
 
 ## Signal Return Values
 
+Slots can also return values. If multiple slots are connected to a signal then the result of invoking the signal is determined by the a *combiner* that is associated with the signal. The default combiner is `sig::optional_last_value` which returns the result of the last slot that is connected to the signal.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+float product(float x, float y) { return x * y; };
+float quotient(float x, float y) { return x / y; }
+float sum(float x, float y) { return x + y; }
+float difference(float x, float y) { return x - y; }
+
+int main()
+{
+    // Define a signal that takes two floats and returns a float.
+    using signal = sig::signal<float(float, float)>;
+    signal s;
+
+    // Connect all of the functions to the signal.
+    s.connect(&product);
+    s.connect(&quotient);
+    s.connect(&sum);
+    s.connect(&difference);
+
+    // The default combiner returns a opt::optional containing
+    // the return value of the last slot in the list, in this case
+    // the result of the difference function.
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    return 0;
+}
+```
+
+In this example, four functions are connected to the signal. When the signal is invoked, all of the functions are invoked but ony the result of the last slot (`difference`) is returned. If you run this program, the following output should be printed to the console:
+
+```sh
+2
+```
+
+It is possible to override the default combiner for the slot by supplying a combiner class as one of the template arguments for the slot.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+template<typename T>
+class maximum_value
+{
+public:
+    using result_type = opt::optional<T>;
+
+    template<typename InputIterator>
+    result_type operator()(InputIterator first, InputIterator last) const
+    {
+        result_type max;
+        while (first != last)
+        {
+            // Dereferencing the iterator invokes the connected function.
+            result_type tmp = *first;
+            if ( tmp > max) max = tmp;
+
+            ++first;
+        }
+        return max;
+    }
+};
+
+float product(float x, float y) { return x * y; };
+float quotient(float x, float y) { return x / y; }
+float sum(float x, float y) { return x + y; }
+float difference(float x, float y) { return x - y; }
+
+int main()
+{
+    // Define a signal that takes two floats and returns void.
+    // The return value of the signal is the maximum value of all connected slots.
+    using signal = sig::signal<float(float, float), maximum_value<float>>;
+    signal s;
+
+    // Connect all of the functions to the signal.
+    s.connect(&product);
+    s.connect(&quotient);
+    s.connect(&sum);
+    s.connect(&difference);
+
+    // The maximum_value combiner returns the maximum
+    // value returned by all connected slots.
+    // In this case, the result is 15 since 5 * 3 is 15.
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    return 0;
+}
+```
+
+The *combiner* class is a function object whose function call operator takes the `first` and `last` *input* iterators which invoke the slot when dereferenced. In this example, the `maximum_value` combiner is defined which iterators from `first` to `last` and invoking the slot by dereferencing the input iterator. The `result_type` type alias indicates to the signal the type of the return value of the combiner. In this case, the combiner returns an `opt::optional<T>`. If there are no slots connected to the signal, the result is a *disengaged* optional. If there is at least 1 unblocked slot connected to the signal, then the return value is the maximum value of all the connected slots.
+
+Running the example should result in **15** being printed to the console.
+
+```sh
+15
+```
+
+As another example, we may want to return a list (`std::vector`) of all of the return values of all of the connected slots.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+#include <vector>
+
+template<typename Container>
+class aggregate_values
+{
+public:
+    using result_type = Container;
+
+    template<typename InputIterator>
+    result_type operator()(InputIterator first, InputIterator last) const
+    {
+        result_type values;
+        while (first != last)
+        {
+            auto value = *first++;
+            if ( value )
+                values.push_back(*value);
+        }
+        return values;
+    }
+};
+
+float product(float x, float y) { return x * y; };
+float quotient(float x, float y) { return x / y; }
+float sum(float x, float y) { return x + y; }
+float difference(float x, float y) { return x - y; }
+
+int main()
+{
+    // Define a signal that takes two floats and returns a float.
+    // The return value of the signal is a list of the return values of all connected slots.
+    using signal = sig::signal<float(float, float), aggregate_values<std::vector<float>>>;
+    signal s;
+
+    // Connect all of the functions to the signal.
+    s.connect(&product);
+    s.connect(&quotient);
+    s.connect(&sum);
+    s.connect(&difference);
+
+    std::cout << "Aggregate values: ";
+    // The aggregate_values combiner returns a list
+    // of all of the values from the connected slots.
+    for ( auto f : s(5.0f, 3.0f) )
+    {
+        std::cout << f << " ";
+    }
+    std::cout << std::endl;
+
+    return 0;
+}
+```
+
+In this example, the *combiner* for the signal returns a list of return values from all connected slots in an `std::vector`. For the combiner in this example, any container type that provides the `push_back` method can be used.
+
+The result of running this example should be:
+
+```sh
+Aggregate values: 15 1.66667 8 2
+```
+
+## Member Functions
+
+Connecting a signal to a member function of an instance of a class is simply a matter of passing a pointer to the class instance as the second parameter of the `signal::connect` method.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+class Calculator
+{
+public:
+    float product(float x, float y)
+    {
+        return x * y;
+    }
+
+    float sum(float x, float y)
+    {
+        return x + y;
+    }
+
+    float difference(float x, float y)
+    {
+        return x - y;
+    }
+
+    float quotient(float x, float y)
+    {
+        return x / y;
+    }
+};
+
+int main()
+{
+    // Define a signal that takes two floats and returns a float.
+    // The return value of the signal is a list of all return values of connected slots.
+    using signal = sig::signal<float(float, float)>;
+    signal s;
+
+    // Create an instance of calculator.
+    Calculator c;
+
+    // Connect all of the functions to the signal.
+    s.connect(&Calculator::product, &c);
+    s.connect(&Calculator::sum, &c);
+    s.connect(&Calculator::quotient, &c);
+    s.connect(&Calculator::difference, &c);
+
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    return 0;
+}
+```
+
+In this example, the `Calculator` class defines four methods. Each method is connected to the signal passing an instance of the class as the second parameter to the `signal::connect` method. Similar to the previous example, since the `Calculator::difference` method is connected last, the result of invoking the signal is 2.
+
+```sh
+2
+```
+
+It is important to note that the signal does not (cannot) track the lifetime of the instance of the object that is passed as the second parameter of the `connect` method. In this case, the signal must not be invoked on a class instance that goes out of scope.
+
+```cpp
+...
+using signal = sig::signal<float(float, float)>;
+signal s;
+
+{
+    // Create an instance of calculator.
+    Calculator c;
+
+    // Connect all of the functions to the signal.
+    s.connect(&Calculator::product, &c);
+    s.connect(&Calculator::sum, &c);
+    s.connect(&Calculator::quotient, &c);
+    s.connect(&Calculator::difference, &c);
+}   // Oops.. c is out of scope and has been destroyed.
+
+// Invoking the slot now will fail since c is out of scope!
+std::cout << *s(5.0f, 3.0f) << std::endl;
+...
+```
+
+In the example shown above, an instance of the `Calculator` class is created and connected to the signal inside a scope block. The signal is invoked outside of that scope block which means that the instance of the `Calculator` class has been destroyed and very likely a rutime error will occur.
+
+To solve this problem, you can connect a *shared pointer* with the signal.
+
+## Automatic Connection Management
+
 
 
 [jpvanoosten/signals]: https://github.com/jpvanoosten/signals
