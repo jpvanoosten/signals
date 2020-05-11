@@ -8,7 +8,7 @@ void hello_world()
 
 int main()
 {
-    // Defina a signal that takes no arguments and returns void.
+    // Define a signal that takes no arguments and returns void.
     using signal = sig::signal<void()>;
     signal s;
 

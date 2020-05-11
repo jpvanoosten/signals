@@ -59,7 +59,7 @@ void hello_world()
 
 int main()
 {
-    // Defina a signal that takes no arguments and returns void.
+    // Define a signal that takes no arguments and returns void.
     using signal = sig::signal<void()>;
     signal s;
 
@@ -107,7 +107,7 @@ void world()
 
 int main()
 {
-    // Defina a signal that takes no arguments and returns void.
+    // Define a signal that takes no arguments and returns void.
     using signal = sig::signal<void()>;
     signal s;
 
@@ -163,7 +163,7 @@ void print_quotient( float x, float y)
 
 int main()
 {
-    // Defina a signal that takes two floats and returns void.
+    // Define a signal that takes two floats and returns void.
     using signal = sig::signal<void(float, float)>;
     signal s;
 

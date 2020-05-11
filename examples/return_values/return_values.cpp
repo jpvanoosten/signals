@@ -8,7 +8,7 @@ float difference(float x, float y) { return x - y; }
 
 int main()
 {
-    // Defina a signal that takes two floats and returns a float.
+    // Define a signal that takes two floats and returns a float.
     using signal = sig::signal<float(float, float)>;
     signal s;
 
