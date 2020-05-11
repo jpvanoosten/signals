@@ -268,7 +268,7 @@ void DoDelayedConnect(std::shared_ptr<WithConstant>& wc, sig::signal<int(int)>& 
 {
     wc.reset();
 
-    // Connecting a slow with an expired value should result in a disconnected slot.
+    // Connecting a slot with an expired value should result in a disconnected slot.
     sig::connection<int(int)> c = sig.connect(slot);
     EXPECT_FALSE(c.connected());
 }

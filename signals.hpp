@@ -1382,6 +1382,7 @@ namespace sig
         using slot_type = slot<R(Args...)>;
         using slot_ptr_type = std::shared_ptr<slot_type>;
         using connection_type = connection<R(Args...)>;
+        using connection_blocker_type = connection_blocker<R(Args...)>;
         using scoped_connection_type = scoped_connection<R(Args...)>;
         using list_type = std::vector<slot_ptr_type>;
         using list_iterator = typename list_type::const_iterator;

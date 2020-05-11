@@ -32,3 +32,16 @@ target_include_directories( signal_tests
 )
 
 gtest_discover_tests( signal_tests )
+
+set_target_properties(
+    gmock
+    gmock_main
+    gtest
+    gtest_main
+    PROPERTIES FOLDER gtest
+)
+
+set_target_properties(
+    signal_tests
+    PROPERTIES FOLDER tests
+)
