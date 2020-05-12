@@ -288,9 +288,9 @@ int main()
 }
 ```
 
-The *combiner* class is a function object whose function call operator takes the `first` and `last` *input* iterators which invoke the slot when dereferenced. In this example, the `maximum_value` combiner is defined which iterators from `first` to `last` and invoking the slot by dereferencing the input iterator. The `result_type` type alias indicates to the signal the type of the return value of the combiner. In this case, the combiner returns an `opt::optional<T>`. If there are no slots connected to the signal, the result is a *disengaged* optional. If there is at least 1 unblocked slot connected to the signal, then the return value is the maximum value of all the connected slots.
+The *combiner* class is a function object whose function call operator takes the `first` and `last` *input* iterators which invoke the slot when dereferenced. In this example, the `maximum_value` combiner is defined which iterates from `first` to `last` and invoking the slot by dereferencing the iterator. The `result_type` type alias indicates to the signal the type of the return value of the combiner. In this case, the combiner returns an `opt::optional<T>`. If there are no slots connected to the signal, the result is a *disengaged* optional value. Otherwise, the return value is the maximum value of all the connected slots.
 
-Running the example should result in **15** being printed to the console.
+Running the example should result in 15 being printed to the console.
 
 ```sh
 15
@@ -548,7 +548,7 @@ int main()
     // Disconnect the slot.
     c.disconnect();
 
-    // Call the slot again.
+    // Call the signal again.
     // Nothing is printed to the console.
     s();
 
@@ -556,7 +556,7 @@ int main()
 }
 ```
 
-In this example, a callable function object `HelloWorld` is connected to the signal using the `signal::connect` method. This method returns the `connection` object which is stored in `c`. The signal is invoked causing "Hello, World!" to be printed to the console. The slot is disconnected using the `connection::disconnect` method and the slot is invoked again but nothing is printed to the console.
+In this example, a callable function object `HelloWorld` is connected to the signal using the `signal::connect` method. This method returns the `connection` object which is stored in `c`. The signal is invoked causing "Hello, World!" to be printed to the console. The slot is disconnected using the `connection::disconnect` method and the signal is invoked again but nothing is printed to the console.
 
 ```sh
 Hello, World!
@@ -594,7 +594,7 @@ int main()
     {
         // Create a connection_blocker which will block the slot until
         // the connection_blocker is destroyed.
-        // You can also use c.block() but then you need to call 
+        // You can also use c.block() but then you need to call
         // c.unblock() to unblock the slot again.
         auto b = c.blocker();
 
@@ -628,7 +628,7 @@ Using the `connection_blocker` is just one method to block a slot from being inv
 
 ## Scoped Connections
 
-The `connection` object does not automatically disconnect the slot whent it is destroyed. The `scoped_connection` object is used to automatically disconnect the slot when the `scoped_connection` object is destroyed. The `signal::connect_scoped` method is used to return a `scoped_connection` object.
+The `connection` object does not automatically disconnect the slot from the signal when it is destroyed. The `scoped_connection` object can be used to automatically disconnect the slot when the `scoped_connection` object is destroyed. The `signal::connect_scoped` method is used to return a `scoped_connection` object.
 
 ```cpp
 #include "signals.hpp"
@@ -678,6 +678,157 @@ Hello, World!
 Hello, World!
 ```
 
+## Disconnecting Equivalent Slots
+
+Similar to `signal::connect`, slots can be disconnected from the signal using `signal::disconnect` and passing the callable function object as a parameter. If the callable function object can be matched to an existing slot, it will be removed from the signal.
+
+The function object must be equality comparable (that is, it must define the equality operator `==`). If the function objects are not compareable, a `sig::not_comparable_exception` exception is thrown.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+float product(float x, float y) { return x * y; };
+float quotient(float x, float y) { return x / y; }
+float sum(float x, float y) { return x + y; }
+float difference(float x, float y) { return x - y; }
+
+int main()
+{
+    // Define a signal that takes two floats and returns a float.
+    using signal = sig::signal<float(float,float)>;
+    signal s;
+
+    // Connect all of the functions to the signal.
+    s.connect(&product);
+    s.connect(&quotient);
+    s.connect(&sum);
+    s.connect(&difference);
+
+    // Should print 2 (the result of difference)
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    // Disconnect the last slot.
+    s.disconnect(&difference);
+
+    // Should print 8 (the result of sum)
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    // Disconnect the first slot.
+    // For efficency, sum becomes the first slot.
+    s.disconnect(&product);
+
+    // This actually prints 1.6667 since
+    // quotient becomes the last slot in the signal.
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    s.disconnect(&quotient);
+
+    // Should now print 8 (the result of sum)
+    std::cout << *s(5.0f, 3.0f) << std::endl;
+
+    s.disconnect(&sum);
+
+    // All slots disconnected.
+    // Invoking the signal now should result
+    // in a disengaged opt::optional value.
+    auto result = s(5.0f, 3.0f);
+    if ( result )
+    {
+        std::cout << *result << std::endl;
+    }
+    else
+    {
+        std::cout << "Result is invalid!" << std::endl;
+    }
+
+    return 0;
+}
+```
+
+In this example, a few free functions are defined. The functions are connected to the signal and the signal is invoked. The result of invoking the signal is 2 (the result from `difference`);
+
+Then the last slot is disconnected and the signal is invoked again. This time, the result is 8 (the result from `sum`).
+
+Then the `product` slot is disconnected and the signal is invoked again. It is interesting to note that the result that is printed to the console is from `quotient` despite the fact that `sum` should be the last slot. This occurs because when `product` is removed, `product` is swapped with the last slot and then `product` is removed from the end of the container. Since the signal uses an `std::vector` for its internal container, the slots are swapped to avoid having to relocate all of the slots that appear after the slot being removed. This makes the remove *constant-time* instead of *linear* in the number of slots being relocated. It is important to be aware of the slot reordering when removing slots from the beginning or middle of the container.
+
+Then the `quotient` slot is removed and the signal is invoked again, printing 8 to the console (the result of `sum`).
+
+Finally, `sum` is removed from the signal and the signal is invoked again. Since there are no slots left, the result of invoking the signal is a disengaged `opt::optional` value.
+
+```sh
+2
+8
+1.66667
+8
+Result is invalid!
+```
+
+## Signal Type Aliases
+
+`sig::signal` is a template class that takes the function signature as its first template argument. For convienience, the `signal` class defines type aliases for matching `slot`, `connection`, `connection_blocker`, and `scoped_connection` objects.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+struct HelloWorld
+{
+    void operator()() const
+    {
+        std::cout << "Hello, World!" << std::endl;
+    }
+};
+
+int main()
+{
+    // Define a signal that takes no arguments and returns void.
+    using signal = sig::signal<void()>;
+    using slot = signal::slot_type;
+    using connection = signal::connection_type;
+    using connection_blocker = signal::connection_blocker_type;
+    using scoped_connection = signal::scoped_connection_type;
+
+    // Declare a signal.
+    signal s;
+
+    // Create a connection that has the same function signature
+    // as the signal.
+    connection c = s.connect(HelloWorld());
+
+    // Create a scoped connection.
+    scoped_connection sc(c);
+
+    // Create a connection blocker.
+    connection_blocker cb = c.blocker();
+
+    // Invoke the signal.
+    // Nothing is printed since the connection is blocked.
+    s();
+
+    // Unblock the connection
+    c.unblock();
+
+    // Invoke the signal.
+    // "Hello, World!" is printed once again.
+    s();
+
+    return 0;
+}
+```
+
+For convienience, the `signal` defines several type aliases for the `slot`, `connection`, `connection_blocker`, and `scoped_connection` types that have the same function signature as the signal.
+
+## Delegates
+
+
+
+## Known Issues
+
+1. It should be possible to create a `slot` outside of the signal, then connect the `slot` to the signal using an overload of the `signal::connect` method. This currently isn't working because the wrong overload is being chosen. To fix this, I need to come up with the correct SFINAE expression to prevent incorrect overloads from working. If that is working, I also need to add a matching `signal::disconnect` method that accepts `slot` to disconnect a matching slot from the signal.
+2. `sig::signal` does not support connection groups (similar to [boost::signals2]).
+3. Currently, the `sig::detail::slot_iterator` class is used to iterate slots in a `Combiner`. The iterator should automatically skip blocked or disconnected slots but these are still invoked when the iterator is dereferenced resulting in a disengaged optional value being retured from the slot. Ideally, blocked or disconnected slots should be skipped when the iterator is incremented (using either pre or post-increment operator).
+4. When the `sig::detail::slot_iterator` is dereferenced in the `Combiner`, the result of invoking the slot is not cached. This means that dereferencing the iterator in the combiner several times will invoke the slot each time which could potentially be an expensive operation or even change the result that is returned from the slot (if invoking the slot has side-effects). Ideally, the result of invoking the slot should be cached until the iterator is incremented to the next slot.
 
 [jpvanoosten/signals]: https://github.com/jpvanoosten/signals
 [sig::signals]: https://github.com/jpvanoosten/signals
