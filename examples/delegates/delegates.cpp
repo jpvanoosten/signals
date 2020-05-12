@@ -8,7 +8,7 @@ class Delegate
 {
 public:
     using signal = sig::signal<void(Args...)>;
-    using conection = typename signal::connection_type;
+    using connection = typename signal::connection_type;
 
     // Adds a function callback to the delegate.
     template<typename Func>
@@ -29,7 +29,7 @@ public:
     // All connected callbacks are invoked.
     void operator()(Args&&... args)
     {
-        m_Callbacks(std::forward<Args>(args)...):
+        m_Callbacks(std::forward<Args>(args)...);
     }
 private:
     signal m_Callbacks;
