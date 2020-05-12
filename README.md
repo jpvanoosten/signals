@@ -4,6 +4,10 @@
 
 A single header-only C++11 implementation of [boost::signals2] (okay... 2 header files). The implementation of this library is also heavly inspired by [palacaze/sigslot].
 
+## Usage
+
+To use this library, just copy the [signals.hpp](signals.hpp) and [optional.hpp](optional.hpp) files to your include folder.
+
 ## Motivation
 
 I needed a C++11 signals library that matched the functionality of the [boost::signals2] library without requiring the entire boost library to be included in the project. I've looked at a few other libraries that offered similar functionality but there were always trade-offs (for example, no support for return values, doesn't work with C++11, etc...).
