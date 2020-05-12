@@ -64,7 +64,7 @@ int main()
     signal s;
 
     // Connect the hello_world function to the signal.
-    s.connect(hello_world);
+    s.connect(&hello_world);
 
     // Call the signal.
     s();
@@ -75,7 +75,7 @@ int main()
 
 The `hello_world` function is a free function that takes no arguments. It's only purpose is to print "Hello, World!" to the default output stream (the console).
 
-In the the `main` function, a `signal` is aliased from `sig::signal<void()>`. `sig::signal` is a template class that takes the function signature as the template argument for the class. Creating a template alias for the signal is not required but it does make the code easier to read if you need to create multiple signals with the same function signatures.
+In the the `main` function, a `signal` is aliased from `sig::signal<void()>`. `sig::signal` is a template class that takes the function signature as the template argument for the class. Creating a template alias for the signal is not required but it does make the code easier to read if you need to create multiple signals with the same function signature.
 
 The `hello_world` function is connected to the signal using the `signal::conect` method.
 
@@ -505,7 +505,7 @@ int main()
 
 In this example, a `shared_ptr` instance of the `Calculator` class is created inside the scope block and connected to the signal. When the signal is invoked inside the scope block, it returns the value 2.
 
-The signal is invoked again outside of the scope block but in this case the `shared_ptr` instance goes out of scope and is destroyed. This causes the slot to become disconnected and the result of invoking the signal is a disengaged optional value.
+The signal is invoked again outside of the scope block but in this case the `shared_ptr` instance goes out of scope and is destroyed. This causes the slots to become disconnected and the result of invoking the signal is a disengaged optional value.
 
 The result of executing this example is:
 
@@ -624,7 +624,7 @@ Hello, World!
 Hello, World!
 ```
 
-Using the `connection_blocker` is just one method to block a slot from being invoked. The `connection::block` method and the `connection::unblock` methods can also be used to block and unblock the slot (respectively).
+Using the `connection_blocker` is just one method to block a slot from being invoked. The `connection::block` method and the `connection::unblock` method can also be used to block and unblock the slot (respectively).
 
 ## Scoped Connections
 
@@ -674,7 +674,6 @@ Inside the scope block, the signal is invoked causing "Hello, World!" to be prin
 When `sc` goes out of scope, it automatically disconnects the slot from the signal and when the signal is invoked again outside of the scope block, nothing is printed to the screen.
 
 ```sh
-Hello, World!
 Hello, World!
 ```
 
@@ -821,7 +820,232 @@ For convienience, the `signal` defines several type aliases for the `slot`, `con
 
 ## Event Delegates
 
+Using the `sig::signal` library, it is easy to create an event system that is similar to the C# event system.
 
+### Delegate Class
+
+The `Delegate` class defines a set of callback functions. For simplicity of the example, only functions returning `void` are allowed but any number of arguments can be used to define a delegate.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+// Delegate that holds function callbacks.
+// For simplicity, delegates are limited to void return types.
+template<typename... Args>
+class Delegate
+{
+public:
+    using signal = sig::signal<void(Args...)>;
+    using connection = typename signal::connection_type;
+
+    // Adds a function callback to the delegate.
+    template<typename Func>
+    connection operator+=(Func&& f)
+    {
+        return m_Callbacks.connect(std::forward<Func>(f));
+    }
+
+    // Remove a function callback.
+    // Returns the number of functions removed.
+    template<typename Func>
+    std::size_t operator-=(Func&& f)
+    {
+        return m_Callbacks.disconnect(std::forward<Func>(f));
+    }
+
+    // Invoke the delegate.
+    // All connected callbacks are invoked.
+    void operator()(Args&&... args)
+    {
+        m_Callbacks(std::forward<Args>(args)...);
+    }
+private:
+    signal m_Callbacks;
+};
+```
+
+The `Delegate` class is a wrapper for a `sig::signal` but provides `+=` and `-=` operators for connecting and disconnecting slots to the underlying `signal` (similar to C# delegates). The delegate also defines a function call operator to invoke the registered callbacks.
+
+### Event
+
+With the `Delegate` class defined, a few `Events` can be defined that take an `EventArgs` as the only argument to the event callback:
+
+```cpp
+// Base class for all event args.
+class EventArgs
+{
+public:
+    EventArgs() = default;
+    virtual ~EventArgs() = default;
+};
+
+// Define an event that takes a reference to EventArgs
+// as it's only argument.
+using Event = Delegate<EventArgs&>;
+```
+
+The `Event` object can be used to register callbacks that takes a reference to an `EventArgs` as the only argument.
+
+### Mouse Motion Event
+
+The `Event` can be used for generic callback functions, but when you need to pass more information to the callback, you can pass those arguments through the event args. For example, the `MouseMotionEventArgs` stores the x, and y coordinates of the mouse when the event is triggered.
+
+```cpp
+class MouseMotionEventArgs : public EventArgs
+{
+public:
+    using base = EventArgs;
+
+    MouseMotionEventArgs( int x, int y )
+        : base()
+        , X(x)
+        , Y(y)
+    {}
+
+    int X;
+    int Y;
+};
+
+// Define an event that is fired when the mouse moves over
+// the application window.
+using MouseMotionEvent = Delegate<MouseMotionEventArgs&>;
+```
+
+The `MouseMotionEventArgs` stores the x, and y coordinates of the mouse when the event is fired. The `MouseMotionEvent` is an event delegate that accepts callback functions that take a reference to a `MouseMotionEventArgs` as the only argument.
+
+### Application Class
+
+With a few events defined, an `Application` class can be created that exposes a few events that the client can register callback functions for.
+
+```cpp
+// The Application class defines a few events that can be handled by
+// callback functions elsewhere.
+class Application
+{
+public:
+    Application() = default;
+    virtual ~Application() = default;
+
+    // Application events.
+    Event            Update;
+    Event            Render;
+    MouseMotionEvent MouseMoved;
+
+protected:
+    // Give the WndProc method access to the
+    // protected members of this class.
+    friend void WndProc();
+
+    virtual void OnUpdate()
+    {
+        EventArgs e;
+        // Invoke event.
+        Update(e);
+    }
+
+    virtual void OnRender()
+    {
+        EventArgs e;
+        // Invoke event.
+        Render(e);
+    }
+
+    virtual void OnMouseMoved(int x, int y)
+    {
+        MouseMotionEventArgs e(x, y);
+        // Invoke event.
+        MouseMoved(e);
+    }
+};
+```
+
+The `Application` class exposes 3 events:
+
+- Update
+- Render
+- MouseMoved
+
+The client application can register callback functions that are invoked when those events are fired by the application.
+
+As a simple example, let's suppose that the windows process callback function looks like this:
+
+```cpp
+// I know, globals are evil, but it makes the
+// example easier.
+static Application app;
+// Simulate a windows process function.
+void WndProc()
+{
+    app.OnUpdate();
+    app.OnRender();
+    app.OnMouseMoved(60, 80);
+}
+```
+
+### Client Code
+
+The client code can register callback functions that are invoked when the events are fired by the application. First, a few callback functions are defined.
+
+```cpp
+// Define a few callback functions that will handle events from the application.
+void OnUpdate(EventArgs& e)
+{
+    std::cout << "Update game..." << std::endl;
+}
+
+void OnRender(EventArgs& e)
+{
+    std::cout << "Render game..." << std::endl;
+}
+
+void OnMouseMoved(MouseMotionEventArgs& e)
+{
+    std::cout << "Mouse moved: " << e.X << ", " << e.Y << std::endl;
+}
+```
+
+Then, the callback functions can be registered with the applications events:
+
+```cpp
+int main()
+{
+    // Register some callback functions.
+    app.Update += &OnUpdate;
+    app.Render += &OnRender;
+    app.MouseMoved += &OnMouseMoved;
+
+    // Execute the windows event processor
+    WndProc();
+
+    // Unregister callback functions
+    app.Update -= &OnUpdate;
+    app.Render -= &OnRender;
+    app.MouseMoved -= &OnMouseMoved;
+
+    // Execute the windows event processor again.
+    // This time, nothing should happen.
+    WndProc();
+
+    return 0;
+}
+```
+
+First, the callback functions are registered with the applications events.
+
+The `WndProc` function is invoked which simulates the windows processor function. The `WndProc` function just invokes the applications events which causes the callback functions to be invoked and the following is printed to the console:
+
+```sh
+Update game...
+Render game...
+Mouse moved: 60, 80
+```
+
+Next, the callback functions are unregistered from the application's events and the `WndProc` function is called again. This time, nothing is printed to the console.
+
+## Conclusion
+
+The `sig::signal` library is a C++11 single-header (okay 2 header) library that provides a signal & slot implementation.
 
 ## Known Issues
 

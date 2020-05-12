@@ -62,6 +62,8 @@ public:
     int Y;
 };
 
+// Define an event that is fired when the mouse moves over 
+// the application window.
 using MouseMotionEvent = Delegate<MouseMotionEventArgs&>;
 
 // Declare the windows processor function.
@@ -105,6 +107,17 @@ protected:
     }
 };
 
+// I know, globals are evil, but it makes the 
+// example easier.
+static Application app;
+// Simulate a windows process function.
+void WndProc()
+{
+    app.OnUpdate();
+    app.OnRender();
+    app.OnMouseMoved(60, 80);
+}
+
 // Define a few callback functions that will handle events from the application.
 // Any number of callback functions can handle the events from the application class.
 void OnUpdate(EventArgs& e)
@@ -122,11 +135,6 @@ void OnMouseMoved(MouseMotionEventArgs& e)
     std::cout << "Mouse moved: " << e.X << ", " << e.Y << std::endl;
 }
 
-
-// I know, globals are evil, but it makes the 
-// example easier.
-static Application app;
-
 int main()
 {
     // Register some callback functions.
@@ -137,13 +145,14 @@ int main()
     // Execute the windows event processor
     WndProc();
 
-    return 0;
-}
+    // Unregister callback functions
+    app.Update -= &OnUpdate;
+    app.Render -= &OnRender;
+    app.MouseMoved -= &OnMouseMoved;
 
-// Simulate a windows process function.
-void WndProc()
-{
-    app.OnUpdate();
-    app.OnRender();
-    app.OnMouseMoved(60, 80);
+    // Execute the windows event processor again.
+    // This time, nothing should happen.
+    WndProc();
+
+    return 0;
 }
