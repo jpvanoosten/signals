@@ -25,7 +25,7 @@ int main()
         // This should print "Hello, World!" to the console.
         s();
     }
-    
+
     // Invoke the slot again.
     // Nothing is printed to the console.
     s();

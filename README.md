@@ -518,6 +518,165 @@ But it would be pretty frustrating if this was the only way to disconnect a slot
 
 ## Disconnecting Slots
 
+The return value of the `signal::connect` method is a `connection` object. The `connection` object is used to disconnect the slot from the signal.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+struct HelloWorld
+{
+    void operator()() const
+    {
+        std::cout << "Hello, World!" << std::endl;
+    }
+};
+
+int main()
+{
+    // Define a signal that takes no arguments and returns void.
+    using signal = sig::signal<void()>;
+    signal s;
+
+    // Connect the HelloWorld function object to the signal.
+    auto c = s.connect(HelloWorld());
+
+    // Call the signal.
+    // This should print "Hello, World!" to the console.
+    s();
+
+    // Disconnect the slot.
+    c.disconnect();
+
+    // Call the slot again.
+    // Nothing is printed to the console.
+    s();
+
+    return 0;
+}
+```
+
+In this example, a callable function object `HelloWorld` is connected to the signal using the `signal::connect` method. This method returns the `connection` object which is stored in `c`. The signal is invoked causing "Hello, World!" to be printed to the console. The slot is disconnected using the `connection::disconnect` method and the slot is invoked again but nothing is printed to the console.
+
+```sh
+Hello, World!
+```
+
+## Blocking Slots
+
+Slots can be temporarly blocked by using a `connection_blocker` object. A `connection_bloker` can be obtained from the original `connection` object using the `connection::blocker` method.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+struct HelloWorld
+{
+    void operator()() const
+    {
+        std::cout << "Hello, World!" << std::endl;
+    }
+};
+
+int main()
+{
+    // Define a signal that takes no arguments and returns void.
+    using signal = sig::signal<void()>;
+    signal s;
+
+    // Connect the HelloWorld function object to the signal.
+    auto c = s.connect(HelloWorld());
+
+    // Invoke the signal.
+    // This should print "Hello, World!" to the console.
+    s();
+
+    {
+        // Create a connection_blocker which will block the slot until
+        // the connection_blocker is destroyed.
+        // You can also use c.block() but then you need to call 
+        // c.unblock() to unblock the slot again.
+        auto b = c.blocker();
+
+        // Invoke the signal again.
+        // In this case, nothing is printed to the console.
+        s();
+    }
+
+    // Invoke the slot again.
+    // This should print "Hello, World!" to the console.
+    s();
+
+    return 0;
+}
+```
+
+The `HelloWorld` callable function object is connected to the signal and the resulting `connection` object is stored in `c`.
+
+The signal is invoked which causes "Hello, World!" to be printed to the screen.
+
+Inside the scope block, a `connection_blocker` is created and stored in the varible `b`. The signal is invoked again inside the scope block, but nothing is printed to the screen since the slot is blocked. When the `connection_blocker` goes out of scope, it unblocks the slot.
+
+Outside of the scope block, the signal is invoked again, causing "Hello, World!" to be printed to the console again.
+
+```sh
+Hello, World!
+Hello, World!
+```
+
+Using the `connection_blocker` is just one method to block a slot from being invoked. The `connection::block` method and the `connection::unblock` methods can also be used to block and unblock the slot (respectively).
+
+## Scoped Connections
+
+The `connection` object does not automatically disconnect the slot whent it is destroyed. The `scoped_connection` object is used to automatically disconnect the slot when the `scoped_connection` object is destroyed. The `signal::connect_scoped` method is used to return a `scoped_connection` object.
+
+```cpp
+#include "signals.hpp"
+#include <iostream>
+
+struct HelloWorld
+{
+    void operator()() const
+    {
+        std::cout << "Hello, World!" << std::endl;
+    }
+};
+
+int main()
+{
+    // Define a signal that takes no arguments and returns void.
+    using signal = sig::signal<void()>;
+    signal s;
+
+    {
+        // Create scoped_connection object.
+        // A scoped_connection will disconnect the signal
+        // when it goes out of scope.
+        auto sc = s.connect_scoped(HelloWorld());
+
+        // Invoke the signal again.
+        // This should print "Hello, World!" to the console.
+        s();
+    }
+
+    // Invoke the slot again.
+    // Nothing is printed to the console.
+    s();
+
+    return 0;
+}
+```
+
+In this example, a slot is connected to the signal using the `signal::connect_scoped` method which returns a `scoped_connection` object and is stored in `sc`.
+
+Inside the scope block, the signal is invoked causing "Hello, World!" to be printed to the console.
+
+When `sc` goes out of scope, it automatically disconnects the slot from the signal and when the signal is invoked again outside of the scope block, nothing is printed to the screen.
+
+```sh
+Hello, World!
+Hello, World!
+```
 
 
 [jpvanoosten/signals]: https://github.com/jpvanoosten/signals
