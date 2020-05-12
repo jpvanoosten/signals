@@ -15,6 +15,7 @@ add_subdirectory( blocked_slots )
 add_subdirectory( scoped_connection )
 add_subdirectory( disconnect_slots )
 add_subdirectory( signal_aliases )
+add_subdirectory( delegates )
 
 set_target_properties(
     hello_world
@@ -30,5 +31,6 @@ set_target_properties(
     scoped_connection
     disconnect_slots
     signal_aliases
+    delegates
     PROPERTIES FOLDER examples
 )

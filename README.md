@@ -819,7 +819,7 @@ int main()
 
 For convienience, the `signal` defines several type aliases for the `slot`, `connection`, `connection_blocker`, and `scoped_connection` types that have the same function signature as the signal.
 
-## Delegates
+## Event Delegates
 
 
 
