@@ -79,6 +79,17 @@ namespace sig
             template< bool B, typename T = void >
             using enable_if_t = typename std::enable_if<B, T>::type;
 
+            // Type used to indicate SFINAE success.
+            template<typename T>
+            struct success_type
+            {
+                using type = T;
+            };
+
+            // Type used to indicate SFINAE failure.
+            struct failure_type
+            {};
+
             // Detect reference wrapper
             // @see https://stackoverflow.com/questions/40430692/how-to-detect-stdreference-wrapper-in-c-at-compile-time
             template <typename T>
@@ -140,6 +151,94 @@ namespace sig
             {
                 using result_type = R;
             };
+
+            // Check to see if a function is invokable given the arguments
+            // Primary template for result_of.
+            template<typename Func>
+            struct result_of;
+
+            // Invoke tags.
+            struct invoke_memfun_ref{};
+            struct invoke_memfun_deref{};
+            struct invoke_memobj_ref{};
+            struct invoke_memobj_deref{};
+            struct invoke_other{};
+
+            // Associate a tag with a specialization of success_type
+            template<typename T, typename Tag>
+            struct result_of_success : success_type<T>
+            {
+                using invoke_type = Tag;
+            };
+
+            // Determine the result of calling a pointer to member function
+            // for reference types.
+            struct result_of_memfun_ref_impl
+            {
+                template<typename Func, typename T, typename... Args>
+                static result_of_success<decltype((std::declval<T>().*std::declval<Func>())(std::declval<Args>()...)), invoke_memfun_ref>
+                test(int);
+
+                // Fallback on failure.
+                template<typename...>
+                static failure_type test(...);
+            };
+
+            template<typename Func, typename Arg, typename... Args>
+            struct result_of_memfun_ref : result_of_memfun_ref_impl
+            {
+                using type = decltype(test<Func, Arg, Args...>(0));
+            };
+
+            // Determine the result of calling a pointer to member function
+            // for pointer types.
+            struct result_of_memfun_deref_impl
+            {
+                template<typename Func, typename T, typename... Args>
+                static result_of_success<decltype(((*std::declval<T>()).*std::declval<Func>())(std::declval<Args>()...)), invoke_memfun_deref>
+                test(int);
+
+                // Fallback on failure.
+                template<typename...>
+                static failure_type test(...);
+            };
+
+            template<typename Func, typename Arg, typename... Args>
+            struct result_of_memfun_deref : result_of_memfun_deref_impl
+            {
+                using type = decltype(test<Func, Arg, Args...>(0));
+            };
+
+            // Determine the result of a pointer to member data.
+            // for reference types.
+            struct result_of_memobj_ref_impl
+            {
+                template<typename F, typename T>
+                static result_of_success<decltype(std::declval<T>().*std::declval<F>()), invoke_memobj_ref>
+                test(int);
+
+                template<typename, typename>
+                static failure_type test(...);
+            };
+
+            template<typename MemPtr, typename Arg>
+            struct result_of_memobj_ref : result_of_memobj_ref_impl
+            {
+                using type = decltype(test<MemPtr, Arg>(0));
+            };
+
+            // Determine the result of a pointer to member data for
+            // pointer types.
+            // TODO....
+
+            template<bool, bool, typename Func, typename... Args>
+            struct result_of_impl
+            {
+                using type = failure_type;
+            };
+
+            template<typename MemPtr, typename Arg>
+            struct result_of_impl<true, false, MemPtr, Arg> : 
 
         } // namespace traits
 
