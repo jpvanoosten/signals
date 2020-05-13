@@ -3,10 +3,22 @@
 
 struct HelloWorld
 {
+    HelloWorld(int _id)
+    : id(_id)
+    {}
+
     void operator()() const
     {
         std::cout << "Hello, World!" << std::endl;
     }
+
+    bool operator==(const HelloWorld& other) const
+    {
+        return id == other.id;
+    }
+
+private:
+    int id;
 };
 
 int main()
@@ -20,10 +32,16 @@ int main()
 
     // Declare a signal.
     signal s;
+
+    // Declare a slot
+    slot sl = slot(HelloWorld(0));
+
+    // Connect the slot directly to the signal.
+    s.connect(sl);
     
     // Create a connection that has the same function signature
     // as the signal.
-    connection c = s.connect(HelloWorld());
+    connection c = s.connect(HelloWorld(1));
     
     // Create a scoped connection.
     scoped_connection sc(c);
@@ -32,11 +50,14 @@ int main()
     connection_blocker cb = c.blocker();
 
     // Invoke the signal.
-    // Nothing is printed since the connection is blocked.
+    // "Hello, World!" is printed once (the slots's version).
     s();
 
     // Unblock the connection
     c.unblock();
+
+    // Disconnect the slot.
+    s.disconnect(sl);
 
     // Invoke the signal.
     // "Hello, World!" is printed once again.

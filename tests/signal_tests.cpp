@@ -491,3 +491,27 @@ TEST(signal, OneArg)
     EXPECT_EQ(s(1), 2);
     EXPECT_EQ(s(-1), 1);
 }
+
+TEST(signal, ConnectSlot)
+{
+    using signal = sig::signal<void()>;
+    using slot = signal::slot_type;
+
+    // Create a signal.
+    signal s;
+
+    // Create a slot for void_func.
+    slot sl(&void_func);
+
+    // Connect the slot to the signal.
+    s.connect(sl);
+
+    // Invoke the signal.
+    s();
+
+    // Disconnect the slot.
+    s.disconnect(sl);
+
+    // Invoke the signal again.
+    s();
+}
