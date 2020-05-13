@@ -79,6 +79,27 @@ namespace sig
             template< bool B, typename T = void >
             using enable_if_t = typename std::enable_if<B, T>::type;
 
+            // Since C++14
+            template<bool B, typename T, typename F>
+            using conditional_t = typename std::conditional<B, T, F>::type;
+
+            // Since C++14
+            template<typename T>
+            using remove_cv_t = typename std::remove_cv<T>::type;
+
+            // Since C++14
+            template<typename T>
+            using remove_reference_t = typename std::remove_reference<T>::type;
+
+            // Since C++20
+            template<typename T>
+            struct remove_cvref {
+                using type = remove_cv_t<remove_reference_t<T>>;
+            };
+
+            template<typename T>
+            using remove_cvref_t = typename remove_cvref<T>::type;
+
             // Type used to indicate SFINAE success.
             template<typename T>
             struct success_type
@@ -152,23 +173,51 @@ namespace sig
                 using result_type = R;
             };
 
-            // Check to see if a function is invokable given the arguments
+            // Used by result_of, invoke etc. to unwrap a reference_wrapper.
+            template<typename T, typename U = remove_cvref_t<T>>
+            struct inv_unwrap
+            {
+                using type = T;
+            };
+
+            template<typename T, typename U>
+            struct inv_unwrap<T, std::reference_wrapper<U>>
+            {
+                using type = U&;
+            };
+
+            template<typename T>
+            using inv_unwrap_t = typename inv_unwrap<T>::type;
+
             // Primary template for result_of.
+            // 
             template<typename Func>
             struct result_of;
 
             // Invoke tags.
+            struct invoke_func{};
             struct invoke_memfun_ref{};
             struct invoke_memfun_deref{};
             struct invoke_memobj_ref{};
             struct invoke_memobj_deref{};
-            struct invoke_other{};
 
             // Associate a tag with a specialization of success_type
             template<typename T, typename Tag>
             struct result_of_success : success_type<T>
             {
                 using invoke_type = Tag;
+            };
+
+            // Determine result of calling a function object.
+            struct result_of_func_impl
+            {
+                template<typename Func, typename... Args>
+                static result_of_success<decltype(std::declval<Func>()(std::declval<Args>()...)), invoke_func>
+                test(int);
+
+                // Fallback on failure.
+                template<typename...>
+                static failure_type test(...);
             };
 
             // Determine the result of calling a pointer to member function
@@ -185,10 +234,13 @@ namespace sig
             };
 
             template<typename Func, typename Arg, typename... Args>
-            struct result_of_memfun_ref : result_of_memfun_ref_impl
+            struct result_of_memfun_ref : private result_of_memfun_ref_impl
             {
                 using type = decltype(test<Func, Arg, Args...>(0));
             };
+
+            template<typename Func, typename Arg, typename... Args>
+            using result_of_memfun_ref_t = typename result_of_memfun_ref<Func, Arg, Args...>::type;
 
             // Determine the result of calling a pointer to member function
             // for pointer types.
@@ -204,10 +256,13 @@ namespace sig
             };
 
             template<typename Func, typename Arg, typename... Args>
-            struct result_of_memfun_deref : result_of_memfun_deref_impl
+            struct result_of_memfun_deref : private result_of_memfun_deref_impl
             {
                 using type = decltype(test<Func, Arg, Args...>(0));
             };
+
+            template<typename Func, typename Arg, typename... Args>
+            using result_of_memfun_deref_t = typename result_of_memfun_deref<Func, Arg, Args...>::type;
 
             // Determine the result of a pointer to member data.
             // for reference types.
@@ -222,23 +277,140 @@ namespace sig
             };
 
             template<typename MemPtr, typename Arg>
-            struct result_of_memobj_ref : result_of_memobj_ref_impl
+            struct result_of_memobj_ref : private result_of_memobj_ref_impl
             {
                 using type = decltype(test<MemPtr, Arg>(0));
             };
 
+            template<typename MemPtr, typename Arg>
+            using result_of_memobj_ref_t = typename result_of_memobj_ref<MemPtr, Arg>::type;
+
             // Determine the result of a pointer to member data for
             // pointer types.
-            // TODO....
+            struct result_of_memobj_deref_impl
+            {
+                template<typename F, typename T>
+                static result_of_success<decltype((*std::declval<T>()).*std::declval<F>()), invoke_memobj_deref>
+                test(int);
 
-            template<bool, bool, typename Func, typename... Args>
+                template<typename, typename>
+                static failure_type test(...);
+            };
+
+            template<typename MemPtr, typename Arg>
+            struct result_of_memobj_deref : private result_of_memobj_deref_impl
+            {
+                using type = decltype(test<MemPtr, Arg>(0));
+            };
+
+            template<typename MemPtr, typename Arg>
+            using result_of_memobj_deref_t = typename result_of_memobj_deref<MemPtr, Arg>::type;
+
+            template<typename MemPtr, typename Arg>
+            struct result_of_memobj;
+
+            template<typename Type, typename Class, typename Arg>
+            struct result_of_memobj<Type Class::*, Arg>
+            {
+                using ArgVal = remove_cvref_t<Arg>;
+                using MemPtr = Type Class::*;
+                using type = conditional_t<std::is_same<ArgVal, Class>::value || std::is_base_of<Class, ArgVal>::value,
+                    result_of_memobj_ref_t<MemPtr, Arg>,
+                    result_of_memobj_deref_t<MemPtr, Arg>>;
+            };
+
+            template<typename MemPtr, typename Arg>
+            using result_of_memobj_t = typename result_of_memobj<MemPtr, Arg>::type;
+
+            template<typename MemPtr, typename Class, typename... Args>
+            struct result_of_memfun;
+
+            template<typename Func, typename Class, typename Arg, typename... Args>
+            struct result_of_memfun<Func Class::*, Arg, Args...>
+            {
+                using ArgVal = remove_reference_t<Arg>;
+                using MemPtr = Func Class::*;
+                using type = conditional_t<std::is_base_of<Class, ArgVal>::value,
+                    result_of_memfun_ref_t<MemPtr, Arg, Args...>,
+                    result_of_memfun_deref_t<MemPtr, Arg, Args...>>;
+            };
+
+            template<typename Func, typename Class, typename Arg, typename... Args>
+            using result_of_memfun_t = typename result_of_memfun<Func, Class, Arg, Args...>::type;
+
+            template<bool IsMemberObjectPointer, bool IsMemberFunctionPointer, 
+                typename Func, typename... Args>
             struct result_of_impl
             {
                 using type = failure_type;
             };
 
             template<typename MemPtr, typename Arg>
-            struct result_of_impl<true, false, MemPtr, Arg> : 
+            struct result_of_impl<true, false, MemPtr, Arg> : result_of_memobj<decay_t<MemPtr>, inv_unwrap_t<Arg>>
+            {};
+
+            template<typename MemPtr, typename Arg, typename... Args>
+            struct result_of_impl<false, true, MemPtr, Arg, Args...> : result_of_memfun<decay_t<MemPtr>, inv_unwrap_t<Arg>, Args...>
+            {};
+
+            template<typename Func, typename... Args>
+            struct result_of_impl<false, false, Func, Args...> : private result_of_func_impl
+            {
+                using type = decltype(test<Func, Args...>(0));
+            };
+
+            template<typename Func, typename... Args>
+            struct invoke_result : public result_of_impl<
+                std::is_member_object_pointer<remove_reference_t<Func>>::value,
+                std::is_member_function_pointer<remove_reference_t<Func>>::value,
+                Func, Args...>::type
+            {};
+
+            template<typename Func, typename... Args>
+            using invoke_result_t = typename invoke_result<Func, Args...>::type;
+
+            // Detect if a function type is invocable given a set of arguments.
+
+            // Primary template for invalid INVOKE expressions.
+            template<typename Result, typename R, bool = std::is_void<R>::value, typename = void>
+            struct is_invocable_impl : std::false_type
+            {};
+
+            // Valid INVOKE and INVOKE<void> expressions
+            template<typename Result, typename R>
+            struct is_invocable_impl<Result, R, true, void_t<typename Result::type>> : std::true_type
+            {};
+
+            // Valid INVOKE<R> expressions.
+            template<typename Result, typename R>
+            struct is_invocable_impl<Result, R, false, void_t<typename Result::type>>
+            {
+            private:
+                // The type of the INVOKE expression.
+                static typename Result::type get();
+
+                template<typename T>
+                static void conv(T);
+
+                // This overload is viable if INVOKE(f, args...) can convert to T
+                template<typename T, typename = decltype(conv<T>(get()))>
+                static std::true_type test(int);
+
+                // Fallback if failure
+                template<typename T>
+                static std::false_type test(...);
+
+            public:
+                using type = decltype(test<R>(0));
+            };
+
+            template<typename Func, typename... Args>
+            struct is_invocable : is_invocable_impl<invoke_result<Func, Args...>, void>::type
+            {};
+
+            template<typename R, typename Func, typename... Args>
+            struct is_invocable_r : is_invocable_impl<invoke_result<Func, Args...>, R>::type
+            {};
 
         } // namespace traits
 
@@ -1530,7 +1702,9 @@ namespace sig
         }
 
         // Connect a slot with a callable function object.
-        template<typename Func, typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::decay_t<Func>>::value>>
+        template<typename Func,
+            typename = detail::traits::enable_if_t<detail::traits::is_invocable_r<R, detail::traits::remove_cvref_t<Func>, Args...>::value>,
+            typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::remove_cvref_t<Func>>::value>>
         connection_type connect(Func&& f)
         {
             auto s = slot_ptr_type(new slot_type(std::forward<Func>(f), static_cast<detail::signal_base*>(this)));
@@ -1541,7 +1715,9 @@ namespace sig
 
         // Connect a slot with a pointer to member function.
         // or pointer to member data.
-        template<typename Func, typename Ptr>
+        template<typename Func, typename Ptr, 
+            typename = detail::traits::enable_if_t<detail::traits::is_invocable_r<R, detail::traits::remove_cvref_t<Func>, Ptr, Args...>::value>,
+            typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::remove_cvref_t<Func>>::value>>
         connection_type connect(Func&& f, Ptr&& p)
         {
             auto s = slot_ptr_type(new slot_type(std::forward<Func>(f), std::forward<Ptr>(p), static_cast<detail::signal_base*>(this)));
@@ -1559,7 +1735,9 @@ namespace sig
 
         // Connect a slot with a callable function object.
         // Returns a scoped connection.
-        template<typename Func, typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::decay_t<Func>>::value>>
+        template<typename Func, 
+            typename = detail::traits::enable_if_t<detail::traits::is_invocable_r<R, detail::traits::remove_cvref_t<Func>, Args...>::value>,
+            typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::remove_cvref_t<Func>>::value>>
         scoped_connection_type connect_scoped(Func&& f)
         {
             return scoped_connection_type(connect<Func>(std::forward<Func>(f)));
@@ -1568,15 +1746,25 @@ namespace sig
         // Connect a slot with a pointer to member function
         // or pointer to member data.
         // Returns a scoped connection.
-        template<typename Func, typename Ptr>
+        template<typename Func, typename Ptr, 
+            typename = detail::traits::enable_if_t<detail::traits::is_invocable_r<R, Func, Ptr, Args...>::value>,
+            typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::remove_cvref_t<Func>>::value>>
         scoped_connection_type connect_scoped(Func&& f, Ptr&& p)
         {
             return scoped_connection_type(connect<Func>(std::forward<Func>(f), std::forward<Ptr>(p)));
         }
 
+        // Disconnect a slot.
+        std::size_t disconnect(const slot_type& slot)
+        {
+            return erase(slot);
+        }
+
         // Disconnect any slots that are bound to the function object.
         // Returns the number of slots that were disconnected.
-        template<typename Func>
+        template<typename Func,
+            typename = detail::traits::enable_if_t<detail::traits::is_invocable_r<R, Func, Args...>::value>,
+            typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::remove_cvref_t<Func>>::value>>
         std::size_t disconnect(Func&& f)
         {
             // Create a temporary slot for comparison.
@@ -1586,7 +1774,9 @@ namespace sig
 
         // Disconnect any slots that are bound to the function object.
         // Returns the number of slots that were disconnected.
-        template<typename Func, typename Ptr>
+        template<typename Func, typename Ptr,
+            typename = detail::traits::enable_if_t<detail::traits::is_invocable_r<R, Func, Ptr, Args...>::value>,
+            typename = detail::traits::enable_if_t<!std::is_base_of<detail::slot_base, detail::traits::remove_cvref_t<Func>>::value>>
         std::size_t disconnect(Func&& f, Ptr&& p)
         {
             // Create a temporary slot for comparison.
@@ -1640,7 +1830,7 @@ namespace sig
         // @param slot The slot to match for erasure.
         // @returns The number of slots that were actually erased.
         template<typename Func>
-        size_t erase(slot<Func>& slot)
+        size_t erase(const slot<Func>& slot)
         {
             lock_type lock(m_SlotMutex);
             auto& slots = m_Slots.write();
