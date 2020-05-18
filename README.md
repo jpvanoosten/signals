@@ -1053,11 +1053,10 @@ The `sig::signal` library is a C++11 single-header (okay 2 header) library that 
 
 ## Known Issues
 
-1. It should be possible to create a `slot` outside of the signal, then connect the `slot` to the signal using an overload of the `signal::connect` method. This currently isn't working because the wrong overload is being chosen. To fix this, I need to come up with the correct SFINAE expression to prevent incorrect overloads from being selected. If that is working, I also need to add a matching `signal::disconnect` method that accepts a `slot` to disconnect a matching slot from the signal.
-2. `sig::signal` does not support connection groups (similar to [boost::signals2]).
-3. `sig::signal` does not support extended connections (in boost, this is `signal::connect_extended`).
-4. Currently, the `sig::detail::slot_iterator` class is used to iterate slots in a `Combiner`. The iterator should automatically skip blocked or disconnected slots but these are still invoked when the iterator is dereferenced resulting in a disengaged optional value being retured from the slot. Ideally, blocked or disconnected slots should be skipped when the iterator is incremented (using either pre or post-increment operator).
-5. When the `sig::detail::slot_iterator` is dereferenced in the `Combiner`, the result of invoking the slot is not cached. This means that dereferencing the iterator in the combiner several times will invoke the slot each time which could potentially be an expensive operation or even change the result that is returned from the slot (if invoking the slot has side-effects). Ideally, the result of invoking the slot should be cached until the iterator is incremented to the next slot.
+1. `sig::signal` does not support connection groups (similar to [boost::signals2]).
+2. `sig::signal` does not support extended connections (in boost, this is `signal::connect_extended`).
+3. Currently, the `sig::detail::slot_iterator` class is used to iterate slots in a `Combiner`. The iterator should automatically skip blocked or disconnected slots but these are still invoked when the iterator is dereferenced resulting in a disengaged optional value being retured from the slot. Ideally, blocked or disconnected slots should be skipped when the iterator is incremented (using either pre or post-increment operator).
+4. When the `sig::detail::slot_iterator` is dereferenced in the `Combiner`, the result of invoking the slot is not cached. This means that dereferencing the iterator in the combiner several times will invoke the slot each time which could potentially be an expensive operation or even change the result that is returned from the slot (if invoking the slot has side-effects). Ideally, the result of invoking the slot should be cached until the iterator is incremented to the next slot.
 
 [jpvanoosten/signals]: https://github.com/jpvanoosten/signals
 [sig::signals]: https://github.com/jpvanoosten/signals
