@@ -26,9 +26,9 @@ int main()
     // Define a signal that takes no arguments and returns void.
     using signal = sig::signal<void()>;
     using slot = typename signal::slot_type;
-    using connection = typename signal::connection_type;
-    using connection_blocker = typename signal::connection_blocker_type;
-    using scoped_connection = typename signal::scoped_connection_type;
+    using connection = sig::connection;
+    using connection_blocker = sig::connection_blocker;
+    using scoped_connection = sig::scoped_connection;
 
     // Declare a signal.
     signal s;

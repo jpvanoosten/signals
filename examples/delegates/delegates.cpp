@@ -8,7 +8,7 @@ class Delegate
 {
 public:
     using signal = sig::signal<void(Args...)>;
-    using connection = typename signal::connection_type;
+    using connection = sig::connection;
 
     // Adds a function callback to the delegate.
     template<typename Func>
