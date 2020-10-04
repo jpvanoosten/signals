@@ -81,7 +81,7 @@ The `hello_world` function is a free function that takes no arguments. It's only
 
 In the the `main` function, a `signal` is aliased from `sig::signal<void()>`. `sig::signal` is a template class that takes the function signature as the template argument for the class. Creating a template alias for the signal is not required but it does make the code easier to read if you need to create multiple signals with the same function signature.
 
-The `hello_world` function is connected to the signal using the `signal::conect` method.
+The `hello_world` function is connected to the signal using the `signal::connect` method.
 
 The signal is invoked by using the function call operator `s()`.
 
@@ -171,14 +171,14 @@ int main()
     using signal = sig::signal<void(float, float)>;
     signal s;
 
-    // Connect the hello_world function to the signal.
+    // Connect the functions to the signal.
     s.connect(&print_args);
     s.connect(&print_sum);
     s.connect(&print_product);
     s.connect(&print_difference);
     s.connect(&print_quotient);
 
-    // Call the signal.
+    // Invoke the signal.
     s(5.0f, 3.0f);
 
     return 0;
@@ -199,7 +199,7 @@ The quotient is 1.66667
 
 ## Signal Return Values
 
-Slots can also return values. If multiple slots are connected to a signal then the result of invoking the signal is determined by the a *combiner* that is associated with the signal. The default combiner is `sig::optional_last_value` which returns the result of the last slot that is connected to the signal.
+Slots can also return values. If multiple slots are connected to a signal then the result of invoking the signal is determined by the *combiner* that is associated with the signal. The default combiner is `sig::optional_last_value` which returns the result of the last slot that is connected to the signal.
 
 ```cpp
 #include "signals.hpp"
@@ -272,7 +272,7 @@ float difference(float x, float y) { return x - y; }
 
 int main()
 {
-    // Define a signal that takes two floats and returns void.
+    // Define a signal that takes two floats and returns a float.
     // The return value of the signal is the maximum value of all connected slots.
     using signal = sig::signal<float(float, float), maximum_value<float>>;
     signal s;
@@ -401,7 +401,6 @@ public:
 int main()
 {
     // Define a signal that takes two floats and returns a float.
-    // The return value of the signal is a list of all return values of connected slots.
     using signal = sig::signal<float(float, float)>;
     signal s;
 
@@ -767,61 +766,6 @@ Finally, `sum` is removed from the signal and the signal is invoked again. Since
 Result is invalid!
 ```
 
-## Signal Type Aliases
-
-`sig::signal` is a template class that takes the function signature as its first template argument. For convienience, the `signal` class defines type aliases for matching `slot`, `connection`, `connection_blocker`, and `scoped_connection` objects.
-
-```cpp
-#include "signals.hpp"
-#include <iostream>
-
-struct HelloWorld
-{
-    void operator()() const
-    {
-        std::cout << "Hello, World!" << std::endl;
-    }
-};
-
-int main()
-{
-    // Define a signal that takes no arguments and returns void.
-    using signal = sig::signal<void()>;
-    using slot = signal::slot_type;
-    using connection = signal::connection_type;
-    using connection_blocker = signal::connection_blocker_type;
-    using scoped_connection = signal::scoped_connection_type;
-
-    // Declare a signal.
-    signal s;
-
-    // Create a connection that has the same function signature
-    // as the signal.
-    connection c = s.connect(HelloWorld());
-
-    // Create a scoped connection.
-    scoped_connection sc(c);
-
-    // Create a connection blocker.
-    connection_blocker cb = c.blocker();
-
-    // Invoke the signal.
-    // Nothing is printed since the connection is blocked.
-    s();
-
-    // Unblock the connection
-    c.unblock();
-
-    // Invoke the signal.
-    // "Hello, World!" is printed once again.
-    s();
-
-    return 0;
-}
-```
-
-For convienience, the `signal` defines several type aliases for the `slot`, `connection`, `connection_blocker`, and `scoped_connection` types that have the same function signature as the signal.
-
 ## Event Delegates
 
 Using the `sig::signal` library, it is easy to create an event system that is similar to the C# event system.
@@ -841,7 +785,7 @@ class Delegate
 {
 public:
     using signal = sig::signal<void(Args...)>;
-    using connection = typename signal::connection_type;
+    using connection = sig::connection;
 
     // Adds a function callback to the delegate.
     template<typename Func>
