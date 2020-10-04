@@ -6,11 +6,12 @@
 TEST(connection, Swap)
 {
     using signal = sig::signal<void()>;
+    using connection = sig::connection;
 
     signal s;
 
     auto c1 = s.connect(&void_func);
-    signal::connection_type c2;
+    connection c2;
     EXPECT_TRUE(c1.connected());
     EXPECT_FALSE(c2.connected());
 
@@ -26,10 +27,12 @@ TEST(connection, Swap)
 TEST(connection, Release)
 {
     using signal = sig::signal<void()>;
+    using connection = sig::connection;
+    using scoped_connection = sig::scoped_connection;
 
     signal s;
 
-    signal::connection_type c1;
+    connection c1;
     {
         auto scoped = s.connect_scoped(&void_func);
         EXPECT_TRUE(scoped.connected());
@@ -37,9 +40,9 @@ TEST(connection, Release)
     }
     EXPECT_TRUE(c1.connected());
 
-    signal::connection_type c2;
+    connection c2;
     {
-        signal::scoped_connection_type scoped(c1);
+        scoped_connection scoped(c1);
         EXPECT_TRUE(scoped.connected());
         c1 = scoped.release();
         EXPECT_TRUE(c1.connected());
@@ -55,13 +58,15 @@ TEST(connection, Release)
 TEST(connection, Move)
 {
     using signal = sig::signal<void()>;
+    using connection = sig::connection;
+    using scoped_connection = sig::scoped_connection;
 
     signal s;
 
     // Test move assignment from scoped_connection to connection
-    signal::connection_type c1;
+    connection c1;
     {
-        signal::scoped_connection_type scoped(s.connect(&void_func));
+        scoped_connection scoped(s.connect(&void_func));
         EXPECT_TRUE(scoped.connected());
         
         c1 = std::move(scoped);
@@ -71,10 +76,10 @@ TEST(connection, Move)
 
     // Test move construction from scoped to scoped.
     {
-        signal::scoped_connection_type scoped1(c1);
+        scoped_connection scoped1(c1);
         EXPECT_TRUE(scoped1.connected());
         
-        signal::scoped_connection_type scoped2(std::move(scoped1));
+        scoped_connection scoped2(std::move(scoped1));
         EXPECT_FALSE(scoped1.connected());
         EXPECT_TRUE(scoped2.connected());
         EXPECT_TRUE(c1.connected());
@@ -84,8 +89,8 @@ TEST(connection, Move)
     // Test move assignment from scoped to scoped.
     c1 = s.connect(&void_func);
     {
-        signal::scoped_connection_type scoped1;
-        signal::scoped_connection_type scoped2(c1);
+        scoped_connection scoped1;
+        scoped_connection scoped2(c1);
         EXPECT_TRUE(scoped2.connected());
 
         scoped1 = std::move(scoped2);
