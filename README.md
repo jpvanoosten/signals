@@ -804,7 +804,7 @@ public:
 
     // Invoke the delegate.
     // All connected callbacks are invoked.
-    void operator()(Args&&... args)
+    void operator()(Args... args)
     {
         m_Callbacks(std::forward<Args>(args)...);
     }
